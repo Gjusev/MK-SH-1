@@ -1,6 +1,8 @@
-"""E22 efficiency v2: genuinely homogeneous Mokka vs Julia comparison (CPU).
+"""E22 efficiency harness revision 3 (historical v2 measurements preserved).
 
-Fixes every defect from the E21 review:
+Revision 3 also enforces threads AFTER model loading and disables autograd.
+New measurements are required; this correction does not validate v2 timings.
+Runtime-controlled comparison:
 - TWO scenarios for ALL models: batch 1 (true individual latency) and batch 16
   (batch DURATION - never divided to fake a latency; last batch's real size
   is recorded and used for throughput).
@@ -21,6 +23,7 @@ Usage (one model per process): python scripts/efficiency_e22.py --model X
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 import hashlib
 import json
 import sys
@@ -38,6 +41,23 @@ MAXLEN = 512
 HEADLEN = 256
 WARMUP = 1
 TIMED = 2
+
+
+@contextmanager
+def inference_runtime(threads=THREADS):
+    """Apply runtime settings after loaders that may modify PyTorch globals."""
+    import torch
+    torch.set_num_threads(threads)
+    torch.set_float32_matmul_precision("highest")
+    with torch.inference_mode():
+        runtime = {"effective_threads": torch.get_num_threads(),
+                   "interop_threads": torch.get_num_interop_threads(),
+                   "grad_enabled": torch.is_grad_enabled(),
+                   "inference_mode": torch.is_inference_mode_enabled(),
+                   "float32_matmul_precision": torch.get_float32_matmul_precision()}
+        if runtime["effective_threads"] != threads or runtime["grad_enabled"] or not runtime["inference_mode"]:
+            raise RuntimeError(f"Invalid measured runtime: {runtime}")
+        yield runtime
 
 
 def sha256(p):
@@ -93,6 +113,7 @@ def run(model_name, rows):
     t0 = time.perf_counter()
     if model_name == "julia":
         engine = load_julia()
+        engine.model.to(dtype=torch.float32).eval()
         from julia.cuda import move
 
         def collate_fn(idxs):
@@ -102,10 +123,7 @@ def run(model_name, rows):
             return move(engine.collate(batch_rows, include_targets=False), engine.device)
 
         def forward_fn(collated):
-            logits = engine.model(**collated)
-            if not torch.isfinite(logits).all():
-                raise FloatingPointError("nonfinite")
-            return logits.cpu()
+            return engine.model(**collated).float().cpu()
 
         def preds_from(out, idxs):
             preds = {}
@@ -117,6 +135,7 @@ def run(model_name, rows):
     else:
         arm = model_name.replace("mokka_", "e20_")
         model = load_mokka(arm)
+        model.to(dtype=torch.float32).eval()
         from mokka_decisions.arch_julia import collate_julia
         from mokka_decisions.contracts import DecisionCase, Option
         from transformers import AutoTokenizer
@@ -149,7 +168,10 @@ def run(model_name, rows):
         collated = [collate_fn(b) for b in batches]
         preds = {}
         for b, c in zip(batches, collated):
-            preds.update(preds_from(forward_fn(c), b))
+            logits = forward_fn(c)
+            if not torch.isfinite(logits).all():
+                raise FloatingPointError("nonfinite validation logits")
+            preds.update(preds_from(logits, b))
         for _ in range(WARMUP):
             for c in collated:
                 forward_fn(c)
@@ -178,12 +200,19 @@ def run(model_name, rows):
                 "pretok_pass_s": pre_tok, "full_pass_s": full,
                 "raw_items": raw_items, "preds": preds}
 
-    b1 = scenario(1)
-    b16 = scenario(BATCH)
+    # Julia's loader may reset threads; pin and record the EFFECTIVE runtime
+    # here, after all initialization, for both models and all timed phases.
+    with inference_runtime(THREADS) as runtime:
+        b1 = scenario(1)
+        b16 = scenario(BATCH)
+        if torch.get_num_threads() != THREADS:
+            raise RuntimeError("Thread count changed during measurement")
     ref_file = PERCASE / ("julia_percase.jsonl" if model_name == "julia" else f"{model_name.replace('mokka_', 'e20_')}_percase.jsonl")
     ref = {json.loads(l)["id"]: json.loads(l)["pred_idx"] for l in ref_file.read_text(encoding="utf-8").splitlines() if l.strip()}
     mism = {i for i in ref if ref[i] != b1["preds"].get(i)} | {i for i in ref if ref[i] != b16["preds"].get(i)}
-    return {"model": model_name, "load_s": load_s, "threads": THREADS, "max_length": MAXLEN,
+    return {"harness_revision": 3, "model": model_name, "load_s": load_s,
+            "threads": runtime["effective_threads"], "runtime": runtime,
+            "weight_dtype": "float32", "max_length": MAXLEN,
             "batch1": b1, "batch16": b16, "mismatches": len(mism), "weights_path": weights_path}
 
 

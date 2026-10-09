@@ -2,14 +2,13 @@
 
 Fixed models (dev criterion, unchanged from E21): julia, e20_ctrl_s43, e20_cand_s43.
 Reports accuracy by FORMAT and by OPERATOR, majority baseline, both-members-correct
-on inversion pairs (per format), with bootstrap over PROBLEMS (variants grouped).
+on inversion pairs (per format). Intervals are not computed by this report.
 """
 
 from __future__ import annotations
 
+import argparse
 import json
-import random
-import statistics
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -19,7 +18,22 @@ sys.path.insert(0, str(ROOT / "src"))
 
 MODELS = ("julia", "mokka_ctrl_s43", "mokka_cand_s43")
 FORMATS = ("json_opt", "json_q", "prose_opt", "prose_q")
-BOOTSTRAP = 20_000
+
+
+def response_baselines(gold, predictions):
+    """Keep label-based baseline accuracy separate from response bias."""
+    if not gold or set(gold) != set(predictions):
+        raise ValueError("Gold and prediction IDs must match and be nonempty")
+    if any(g not in (0, 1) for g in gold.values()) or any(
+            p["pred"] not in (0, 1) for p in predictions.values()):
+        raise ValueError("Expected binary gold and predictions")
+    positive_gold = sum(gold.values()) / len(gold)
+    positive_predictions = sum(p["pred"] for p in predictions.values()) / len(predictions)
+    return {"majority_baseline": max(positive_gold, 1 - positive_gold),
+            "constant_true_accuracy": positive_gold,
+            "constant_false_accuracy": 1 - positive_gold,
+            "true_rate": positive_predictions,
+            "prediction_majority_fraction": max(positive_predictions, 1 - positive_predictions)}
 
 
 def evaluate_ours(arm, rows):
@@ -70,24 +84,40 @@ def evaluate_julia(rows):
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--from-saved", action="store_true", help="Analyze existing predictions without inference")
+    parser.add_argument("--out", type=Path, default=ROOT / "runs/e22-format/format_report_v2.json")
+    args = parser.parse_args()
+    if args.out.exists():
+        raise SystemExit(f"Refusing to overwrite an existing report: {args.out}")
     rows = [json.loads(l) for l in (ROOT / "data/e22-format/rows.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()]
     gold = {r["id"]: int(r["target_option"] == "true") for r in rows}
+    if len(gold) != len(rows):
+        raise ValueError("Duplicate question IDs")
     meta = {r["id"]: r for r in rows}
     out_dir = ROOT / "runs/e22-format"
     out_dir.mkdir(parents=True, exist_ok=True)
     results = {}
     for m in MODELS:
-        per = evaluate_julia(rows) if m == "julia" else evaluate_ours(m.replace("mokka_", "e20_"), rows)
-        (out_dir / f"{m}_percase.jsonl").write_text(
-            "".join(json.dumps({"id": i, **v, "gold": gold[i], "correct": int(v["pred"] == gold[i])}) + "\n"
-                    for i, v in per.items()), encoding="utf-8")
+        per_path = out_dir / f"{m}_percase.jsonl"
+        if args.from_saved:
+            saved = [json.loads(l) for l in per_path.read_text(encoding="utf-8").splitlines() if l.strip()]
+            per = {r["id"]: r for r in saved}
+            if len(per) != len(saved) or any(r["gold"] != gold.get(r["id"]) for r in saved):
+                raise ValueError(f"{m}: duplicate IDs or mismatched saved gold")
+        else:
+            if per_path.exists():
+                raise SystemExit(f"Refusing to overwrite saved predictions: {per_path}")
+            per = evaluate_julia(rows) if m == "julia" else evaluate_ours(m.replace("mokka_", "e20_"), rows)
+        baselines = response_baselines(gold, per)
+        if not args.from_saved:
+            per_path.write_text(
+                "".join(json.dumps({"id": i, **v, "gold": gold[i], "correct": int(v["pred"] == gold[i])}) + "\n"
+                        for i, v in per.items()), encoding="utf-8")
         by_fmt = {f: [i for i in per if meta[i]["format"] == f] for f in FORMATS}
         by_op = defaultdict(list)
         for i in per:
             by_op[meta[i]["operator"]].append(i)
-        # majority baseline per model (constant-answer accuracy)
-        tr = sum(v["pred"] for v in per.values())
-        majority = max(tr, len(per) - tr) / len(per)
         # pair both-correct per format
         pairs = defaultdict(lambda: [0, 0])
         by_pair = defaultdict(dict)
@@ -102,16 +132,19 @@ def main() -> int:
                     pairs[f][0] += int(hi and lo)
         results[m] = {
             "accuracy": sum(int(v["pred"] == gold[i]) for i, v in per.items()) / len(per),
-            "majority_baseline": majority,
-            "true_rate": tr / len(per),
+            **baselines,
             "by_format": {f: sum(int(per[i]["pred"] == gold[i]) for i in ids) / len(ids) for f, ids in by_fmt.items()},
             "by_operator": {op: sum(int(per[i]["pred"] == gold[i]) for i in ids) / len(ids) for op, ids in by_op.items()},
             "pair_both_correct_by_format": {f: (c / n if n else None) for f, (c, n) in pairs.items()},
         }
-    n_groups = len({r["group_id"] for r in rows})
-    results["_grouping"] = {"unit": "problem (group_id; variants of one problem kept together)",
-                            "n_groups": n_groups}
-    (out_dir / "format_report.json").write_text(json.dumps(results, indent=2), encoding="utf-8")
+    results["_analysis_version"] = 2
+    results["_grouping"] = {
+        "unit": "pair when present, otherwise group_id; all formats and inversion members together",
+        "n_groups": len({r.get("pair") or r["group_id"] for r in rows}),
+        "historical_group_id_count": len({r["group_id"] for r in rows}),
+        "uncertainty": "not computed; no claim of format equivalence or invariance"}
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    args.out.write_text(json.dumps(results, indent=2), encoding="utf-8")
     print(f"{'model':<16} {'acc':>6} {'maj.base':>8} " + " ".join(f"{f:>9}" for f in FORMATS) + " | pairs by format")
     for m in MODELS:
         r = results[m]
