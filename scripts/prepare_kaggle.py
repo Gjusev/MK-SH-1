@@ -54,6 +54,7 @@ def main() -> int:
     parser.add_argument("--checkpoint", default=None, help="build a checkpoint-transport bundle instead")
     parser.add_argument("--mm-dir", default=None, help="include a multimodal dataset dir as mm/")
     parser.add_argument("--typed-dir", default=None, help="include typed-decisions train dir as typed-v1/")
+    parser.add_argument("--e19-dir", default=None, help="include e19-rulevar data dir as e19-rulevar/")
     args = parser.parse_args()
 
     bundle = Path(args.bundle)
@@ -97,6 +98,11 @@ def main() -> int:
             if not (td / "manifest.json").exists():
                 raise SystemExit(f"no typed manifest under {td}")
             shutil.copytree(td, bundle / "typed-v1")
+        if args.e19_dir:
+            ed = Path(args.e19_dir)
+            if not (ed / "manifest.json").exists():
+                raise SystemExit(f"no e19 manifest under {ed}")
+            shutil.copytree(ed, bundle / "e19-rulevar")
         (bundle / "dataset-metadata.json").write_text(
             json.dumps(
                 {

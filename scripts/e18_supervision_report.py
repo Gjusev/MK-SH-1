@@ -66,6 +66,18 @@ def grouped_bootstrap(delta_by_group: dict[str, float], draws=BOOTSTRAP_DRAWS,
     return [out[int(0.025 * draws)], out[int(0.975 * draws)]]
 
 
+def frozen_verdict(wins: int, losses: int, kl_wins: int, mean_kl: float,
+                   nll_worse: int, brier_worse: int, mae_worse: int) -> str:
+    """E18 protocol rule (errata applied: negative = control wins >=2/3 OR KL
+    worsens in >=2/3 pairs, i.e. kl_wins <= 1)."""
+    if (wins >= 2 and kl_wins >= 2 and mean_kl < 0
+            and not (nll_worse >= 2 or brier_worse >= 2 or mae_worse >= 2)):
+        return "improvement"
+    if losses >= 2 or kl_wins <= 1:
+        return "negative"
+    return "inconclusive"
+
+
 def main() -> int:
     summary = json.loads((RUN / "e18_summary.json").read_text(encoding="utf-8"))
     arms = summary["arms"]
@@ -76,6 +88,17 @@ def main() -> int:
             raise SystemExit(f"pair init hash mismatch at {seed}: analysis invalid")
 
     rows = {arm: load_rows(arm) for arm in arms}
+    # review errata validation: identical ids/groups across arms, full KL-reference coverage
+    base_ids = [r["id"] for r in rows[sorted(arms)[0]]]
+    base_groups = {r["id"]: r["group_id"] for r in rows[sorted(arms)[0]]}
+    for arm, rws in rows.items():
+        if [r["id"] for r in rws] != base_ids:
+            raise SystemExit(f"id order/content mismatch in {arm}")
+        if any(base_groups[r["id"]] != r["group_id"] for r in rws):
+            raise SystemExit(f"group mapping mismatch in {arm}")
+        missing_kl = [r["id"] for r in rws if "kl" not in r]
+        if missing_kl:
+            raise SystemExit(f"{arm}: {len(missing_kl)} rows lack KL reference (e.g. {missing_kl[:3]})")
     stats = {arm: summarize(r) for arm, r in rows.items()}
     # kernel <-> local cross-check on every arm
     crosscheck = {}
@@ -120,13 +143,7 @@ def main() -> int:
     nll_worse = sum(1 for s in SEEDS if pairs[s]["mean_nll"] > 0)
     brier_worse = sum(1 for s in SEEDS if pairs[s]["mean_brier"] > 0)
     mae_worse = sum(1 for s in SEEDS if pairs[s]["mean_mae"] is not None and pairs[s]["mean_mae"] > 0)
-    if (wins >= 2 and kl_wins >= 2 and mean["mean_kl"] < 0
-            and not (nll_worse >= 2 or brier_worse >= 2 or mae_worse >= 2)):
-        verdict = "improvement"
-    elif losses >= 2 or kl_wins == 0:
-        verdict = "negative"
-    else:
-        verdict = "inconclusive"
+    verdict = frozen_verdict(wins, losses, kl_wins, mean["mean_kl"], nll_worse, brier_worse, mae_worse)
 
     report = {
         "protocol": "docs/internal/E18_PROTOCOL_2026-10-09.md (decision rule frozen pre-launch)",
