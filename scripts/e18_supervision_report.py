@@ -155,11 +155,11 @@ def main() -> int:
         m = stats[arm]
         print(f"{arm:<18} {m['accuracy']:>7.4f} {m['mean_nll']:>7.4f} {m['mean_brier']:>7.4f} "
               f"{m['mean_kl']:>7.4f} {m['mean_mae']:>7.4f} {arms[arm]['best_epoch']}")
-    print(f"\nper-seed Δacc (probs−ord): " + " ".join(f"s{s}={pairs[s]['accuracy']:+.4f}" for s in SEEDS))
-    print(f"mean Δacc {mean['accuracy']:+.5f}  sd {disp['accuracy']['sd']:.5f}  "
+    print(f"\nper-seed dAcc (probs-ord): " + " ".join(f"s{s}={pairs[s]['accuracy']:+.4f}" for s in SEEDS))
+    print(f"mean dAcc {mean['accuracy']:+.5f}  sd {disp['accuracy']['sd']:.5f}  "
           f"bootstrap-by-case CI95 [{ci[0]:+.5f}, {ci[1]:+.5f}]")
-    print(f"mean ΔKL {mean['mean_kl']:+.5f} (kl improves {kl_wins}/3)  "
-          f"mean ΔNLL {mean['mean_nll']:+.5f}  mean ΔMAE {mean['mean_mae']:+.5f}")
+    print(f"mean dKL {mean['mean_kl']:+.5f} (kl improves {kl_wins}/3)  "
+          f"mean dNLL {mean['mean_nll']:+.5f}  mean dMAE {mean['mean_mae']:+.5f}")
     print(f"VERDICT (frozen rule): {verdict.upper()}  -> {out}")
     return 0
 
