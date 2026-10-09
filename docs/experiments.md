@@ -171,17 +171,35 @@ in `runs/**/run_report.json` and dataset manifests). Nothing here is projected.
 
 - Sin ajustes post-hoc: fijación previa escrita, resultados negativos conservados íntegros. Artefactos: runs/independent-v1/ (6 percase + julia + independent_report.json).
 
-## E17 — Arquitectura Julia fiel en Small: 2×2 arquitectura×supervisión (kernel mokka-typed-julia-small v2) — COMPLETADO
+## E17 — Arquitectura Julia en Small (kernel mokka-typed-julia-small v2) — entrenamiento completado, interpretación corregida
 
 - Puerto fiel de JuliaDecisionModel (Apache-2.0; runs/julia-research/upstream-source pineado; divergencias declaradas: act_head RL y temperatura omitidos). Paridad verificada: serialización idéntica token a token y estructura igual que el upstream real (tests/test_arch_julia_serialization.py, 2 PASS). Incidente v1: wheel obsoleto del bundle → ModuleNotFoundError al arranque (45 s GPU); corregido reversionando el dataset antes de v2.
-- GPU verificada en log (2×T4, cuda true); 465 pasos por brazo (3 épocas completas); mmBERT-small, mismos datos/splits/receta/seed 42 que todos los brazos.
+- GPU verificada en log (2×T4, cuda true); 465 pasos por brazo (3 épocas completas); mmBERT-small, mismos datos/splits. El control histórico A0-small usó **4 épocas/620 pasos**: no es una comparación con presupuesto ni calendario idénticos.
 
-| dev (seed 42) | ordinal artificial | probabilidades nativas |
+| dev histórico (E17 afectado por tipos incorrectos) | ordinal artificial | probabilidades nativas |
 |---|---|---|
 | A0-small (pares K) | small_ord **0,6439** (E12) | — |
 | JuliaArch-small (fiel) | julias_ordinal **0,6421** | julias_probs **0,6649** |
 
-- **Efecto arquitectura** (misma supervisión): 0,6421 vs 0,6439 = **−0,18 pp ≈ nulo** (semilla única; dentro del ruido conocido). La arquitectura de Julia NO explica ventaja de calidad dev a igual tamaño/datos/receta.
-- **Efecto supervisión** (dentro de JuliaArch): **+2,28 pp** — la ventaja de las probabilidades nativas REPLICICA en una tercera configuración (ahora variando también la arquitectura). Combinado julias_probs vs small_ord: +2,10 pp.
-- Lectura conjunta con E16: la ventaja restante de Julia está en transferencia OOD de rúbricas score (0,54 vs ≤0,23), no en calidad dev ni en arquitectura medida en dev. Evaluar julias_ordinal/julias_probs en indep-v1 es el test natural de esa hipótesis — checkpoints conservados; NO ejecutado (decisión del usuario).
+- **Corrección de auditoría (2026-10-09):** el mapa de tipos enviado al evaluador contenía únicamente IDs de train. Ninguno de los 570 IDs de dev estaba presente; el fallback los serializaba todos como `choice`. Esto cambiaba el prefijo y el embedding de tipo de **400 preguntas** (172 `noul`, 228 `score`). Las cifras anteriores se conservan como históricas, pero la selección de checkpoint quedó afectada.
+- La semilla se fijaba dentro del trainer, **después** de construir la cabeza aleatoria. No quedó garantizada una inicialización emparejada entre los brazos. Los **+2,28 pp** anteriores no aíslan el efecto de la supervisión y no constituyen una nueva réplica controlada de E15.
+- Falta A0-small con probabilidades nativas y el control ordinal tiene otro presupuesto: **no es un 2×2 completo**. Retirada la conclusión «efecto arquitectura nulo»; una diferencia pequeña de un run tampoco demostraría equivalencia.
+- Corregido para ejecuciones futuras: mapa explícito train+dev, error ante tipos ausentes/desconocidos, semilla antes de construir el modelo. Nuevas pruebas de regresión incluyen paridad numérica de logits con la cabeza upstream usando pesos compartidos; esta comprobación no replica su entrenamiento privado.
+- Se autoriza y ejecuta la evaluación local de los dos checkpoints guardados con tipos correctos. `independent-v1` ya fue consultado en E16: esta evaluación es **exploratoria**. No puede recuperar qué época habría elegido una evaluación dev correcta durante el entrenamiento ni aislar arquitectura/supervisión con los brazos históricos.
 - Artefactos: runs/kaggle-typed-julia-small/ (checkpoints_best + run_reports de ambos brazos).
+
+### E17 — Reevaluación de checkpoints guardados con tipos correctos (2026-10-09)
+
+- Ejecución completada en CPU offline, float32, 8 hilos, batch 16, T=1, contexto 1024 y cabecera 256. Plan con hashes congelado antes de inferencia; datasets/generador/checkpoints originales sin cambios. Las 570 preguntas dev y las 750 de independent-v1 pasan la serialización upstream estricta sin truncamiento. Seis pruebas pertinentes pasan, incluida paridad numérica de logits a pesos compartidos.
+- Dev correcto de los pesos guardados: ordinal **367/570 = 0,64386**; probs **379/570 = 0,66491**. El cambio agregado frente a las métricas históricas es pequeño; no explica la brecha con Julia ni recupera retrospectivamente la selección de época. El hardware/precisión de esta reevaluación también difiere de la ejecución GPU histórica.
+
+| independent-v1 (exploratorio) | total, n=750 | choice, n=250 | noul, n=300 | score, n=200 |
+|---|---:|---:|---:|---:|
+| Julia oficial, referencia E16 | 0,43867 | 0,348 | 0,44667 | 0,540 |
+| E15 Base probs s44, referencia E16 | 0,38400 | 0,396 | 0,55333 | 0,115 |
+| JuliaArch-small ordinal | 0,32533 | 0,248 | 0,51000 | 0,145 |
+| JuliaArch-small probs | 0,35867 | 0,312 | 0,37667 | 0,390 |
+
+- Bootstrap pareado por caso, 50.000 remuestreos: Small probs−Julia **−8,00 pp [−12,00, −4,00]**; Small ordinal−Julia **−11,33 pp [−15,07, −7,47]**; Small probs−Small ordinal **+3,33 pp [−0,53, +7,20]**. Intervalos condicionados a estos checkpoints y estas familias; no estiman incertidumbre entre semillas ni generalización a cualquier dominio.
+- El checkpoint Small probs recupera acierto score frente a los otros checkpoints propios, pero pierde en otros tipos. No hay ventaja global frente a Julia, ni evidencia causal que permita atribuir el patrón solo a arquitectura o supervisión. E17 sigue siendo una comparación incompleta y con inicializaciones no acreditadas como emparejadas.
+- Resultados/hashes/filas: `runs/e17-independent-exploratory-2026-10-09/`; reproducción: `scripts/eval_e17_saved_checkpoints.py --out <carpeta-nueva>`. No se lanzaron nuevos entrenamientos. Para un contraste controlado se necesitan correcciones empaquetadas, presupuesto y orden de datos emparejados, pesos iniciales registrados y réplicas; una nueva confirmación requiere familias selladas.

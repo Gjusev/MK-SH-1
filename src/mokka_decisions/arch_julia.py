@@ -35,6 +35,23 @@ from .contracts import DecisionCase
 QTYPES = {"choice": 0, "score": 1, "noul": 2}
 
 
+def validate_question_types(cases: Sequence[DecisionCase], qtypes: dict[str, str]) -> None:
+    """Never silently serialize an unknown question as a choice."""
+    for case in cases:
+        if case.id not in qtypes:
+            raise ValueError(f"Missing question type for {case.id}")
+        if qtypes[case.id] not in QTYPES:
+            raise ValueError(f"Unsupported question type {qtypes[case.id]!r} for {case.id}")
+
+
+def make_seeded_julia_arch(encoder_name: str, seed: int = 42):
+    """Seed before constructing the randomly initialized decision components."""
+    from .train import set_seed
+
+    set_seed(seed)
+    return JuliaArchScorer(encoder_name)
+
+
 class JuliaArchScorer(nn.Module):
     """JuliaDecisionModel minus RL auxiliaries (see module docstring)."""
 
@@ -108,9 +125,10 @@ def qtype_of(case: DecisionCase) -> str:
 
 def collate_julia(tokenizer, cases: Sequence[DecisionCase], qtypes: dict[str, str],
                   max_length: int, head_length: int, device):
+    validate_question_types(cases, qtypes)
     encoded, targets = [], []
     for case in cases:
-        qt = qtypes.get(case.id, "choice")
+        qt = qtypes[case.id]
         item = julia_sequence(tokenizer, case.state, case.question,
                               [o.description for o in case.options], qt, max_length, head_length)
         encoded.append(item)
@@ -159,33 +177,94 @@ def row_loss(logits: torch.Tensor, targets: torch.Tensor, cases, soft_targets: d
     return torch.stack(losses).mean()
 
 
+def row_metrics(probs: Sequence[float], gold: int, qtype: str,
+                reference: Sequence[float] | None = None) -> dict:
+    """Per-question metrics, E15/E17 conventions (clamps 1e-12 NLL / 1e-9 KL)."""
+    out = {"nll": -math.log(max(probs[gold], 1e-12)),
+           "brier": sum((float(i == gold) - float(p)) ** 2 for i, p in enumerate(probs))}
+    if reference is not None:
+        out["kl"] = sum(v * (math.log(max(v, 1e-9)) - math.log(max(p, 1e-9)))
+                        for v, p in zip(reference, probs) if v > 0)
+    if qtype == "score":
+        out["mae"] = abs(sum(i * p for i, p in enumerate(probs)) - gold)
+    return out
+
+
 @torch.no_grad()
 def evaluate_julia_arch(model, tokenizer, cases, qtypes, *, device,
-                        max_length=1024, head_length=256, batch_decisions=16) -> dict:
+                        max_length=1024, head_length=256, batch_decisions=16,
+                        reference_probabilities: dict | None = None,
+                        collect_rows: bool = False) -> dict:
+    """Dev metrics: global/per-type accuracy, NLL, Brier, KL vs the dataset's
+    original distributions, ordinal MAE on score rows."""
     model.eval()
-    correct = n = nll_sum = 0
+    correct = n = 0
+    nll = brier = kl = mae = 0.0
+    n_kl = n_mae = 0
+    by_type: dict[str, dict] = {}
+    rows = [] if collect_rows else None
     for s in range(0, len(cases), batch_decisions):
         chunk = cases[s : s + batch_decisions]
         batch = collate_julia(tokenizer, chunk, qtypes, max_length, head_length, device)
         logits = model(**{k: batch[k] for k in ("input_ids", "attention_mask", "marker_pos", "marker_mask", "qtype")}).float()
-        valid = batch["targets"] != -100
-        preds = logits.argmax(-1)
-        correct += int(((preds == batch["targets"]) & valid).sum().item())
-        nll_sum += float(F.cross_entropy(logits, batch["targets"], reduction="sum", ignore_index=-100).item())
-        n += int(valid.sum().item())
+        probs = logits.softmax(-1)
+        for r, case in enumerate(chunk):
+            gold = int(batch["targets"][r].item())
+            if gold < 0:
+                continue
+            k = len(case.options)
+            pv = probs[r, :k].tolist()
+            qt = qtypes[case.id]
+            ref = (reference_probabilities or {}).get(case.id)
+            m = row_metrics(pv, gold, qt, ref)
+            pred = max(range(k), key=pv.__getitem__)
+            ok = int(pred == gold)
+            correct += ok
+            n += 1
+            nll += m["nll"]
+            brier += m["brier"]
+            t = by_type.setdefault(qt, {"n": 0, "correct": 0, "nll": 0.0, "kl": 0.0, "n_kl": 0})
+            t["n"] += 1
+            t["correct"] += ok
+            t["nll"] += m["nll"]
+            if "kl" in m:
+                kl += m["kl"]
+                n_kl += 1
+                t["kl"] += m["kl"]
+                t["n_kl"] += 1
+            if "mae" in m:
+                mae += m["mae"]
+                n_mae += 1
+            if rows is not None:
+                rows.append({"id": case.id, "group_id": case.group_id, "type": qt,
+                             "gold_idx": gold, "pred_idx": pred, "probabilities": pv,
+                             "correct": ok, **m})
     model.train()
-    return {"n": n, "accuracy": correct / n if n else None, "mean_nll": nll_sum / n if n else None}
+    out = {"n": n, "accuracy": correct / n if n else None,
+           "mean_nll": nll / n if n else None, "mean_brier": brier / n if n else None,
+           "mean_kl": kl / n_kl if n_kl else None,
+           "mean_mae": mae / n_mae if n_mae else None,
+           "by_type": {t: {"n": d["n"], "accuracy": d["correct"] / d["n"],
+                           "mean_nll": d["nll"] / d["n"],
+                           "mean_kl": d["kl"] / d["n_kl"] if d["n_kl"] else None}
+                       for t, d in by_type.items()}}
+    if rows is not None:
+        out["rows"] = rows
+    return out
 
 
 def train_julia_arch(model, tokenizer, train_cases, dev_cases, qtypes, *, output_dir,
                      epochs=3, microbatch=4, grad_accumulation=8, encoder_lr=2e-5, head_lr=1e-4,
                      weight_decay=0.01, warmup_ratio=0.05, max_grad_norm=1.0, seed=42,
                      device="cuda", soft_targets=None, ordinal_case_ids=None,
-                     max_length=1024, head_length=256) -> dict:
+                     max_length=1024, head_length=256,
+                     reference_probabilities: dict | None = None) -> dict:
     """Same recipe/checkpoint pattern as the A0/A1 trainers (comparable runs)."""
     import json
     from pathlib import Path
 
+    validate_question_types(train_cases, qtypes)
+    validate_question_types(dev_cases, qtypes)
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
     random.seed(seed)
@@ -235,7 +314,8 @@ def train_julia_arch(model, tokenizer, train_cases, dev_cases, qtypes, *, output
                 if global_step % 25 == 0:
                     print(f"[julia-arch] epoch={epoch} step={global_step} loss={float(loss.item())*grad_accumulation:.4f}", flush=True)
         dev_metrics = evaluate_julia_arch(model, tokenizer, dev_cases, qtypes, device=device,
-                                          max_length=max_length, head_length=head_length)
+                                          max_length=max_length, head_length=head_length,
+                                          reference_probabilities=reference_probabilities)
         history.append({"epoch": epoch, "step": global_step, "dev": dev_metrics})
         print(f"[julia-arch epoch {epoch}] dev={dev_metrics}", flush=True)
         if (dev_metrics.get("accuracy") or 0.0) >= best:

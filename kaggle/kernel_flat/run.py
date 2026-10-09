@@ -493,7 +493,7 @@ def stage_baselines(bundle: Path, work: Path, config: str) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--stage", default="typed_julia_small",
+        "--stage", default="typed_e18_supervision",
         help="comma-separated stages: smoke,train,resume_test,eval,baselines",
     )
     parser.add_argument("--config", default="configs/train.yaml")  # bundle v1 carries pilot-budget data
@@ -1729,11 +1729,15 @@ def stage_typed_julia_small(bundle: Path, work: Path, config: str) -> None:
     """Faithful Julia-arch Small control: architecture and supervision as
     SEPARATE variables (commission 2026-10-08/09 step 4).
 
-    2x2 with existing arms:
+    Exploratory architecture/supervision arms; the full 2x2 needs A0-small
+    native probabilities and a matched-budget A0-small ordinal control.
+    Historical arms:
       (A0-small, artificial)  = small_ord (E12, dev 0.6439)
       (JuliaArch-small, artificial) = julias_ordinal  <-- NEW
       (JuliaArch-small, native probs) = julias_probs  <-- NEW
-    Same data/splits/recipe/seeds as every arm; mmBERT-small encoder.
+    E12 used four epochs; these arms use three. Historical E17 dev results
+    also used a train-only type map and unmatched head initialization.
+    Future runs use explicit train+dev types and seed before construction.
     Fidelity: sequence() parity + model structure verified by
     tests/test_arch_julia_serialization.py against the pinned upstream source.
     """
@@ -1754,19 +1758,26 @@ def stage_typed_julia_small(bundle: Path, work: Path, config: str) -> None:
                 if l.strip()}
 
     probs_train = _load_probs("train")
-    qtypes = {_json.loads(l)["id"]: _json.loads(l).get("question_type", "choice")
-              for l in (root / "cases" / "train.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()}
-    ordinal_ids = {i for i, t in qtypes.items() if t == "score"}
+    qtypes = {}
+    for split in ("train", "dev"):
+        for line in (root / "cases" / f"{split}.jsonl").read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            row = _json.loads(line)
+            if row["id"] in qtypes:
+                raise ValueError(f"Duplicate question id across splits: {row['id']}")
+            qtypes[row["id"]] = row["question_type"]
+    ordinal_ids = {c.id for c in train if qtypes[c.id] == "score"}
     soft_targets = {i: probs_train[i]["probabilities"] for i in ordinal_ids}
     log(f"julia_small: train={len(train)} dev={len(dev)} score_rows={len(ordinal_ids)}")
 
-    from mokka_decisions.arch_julia import JuliaArchScorer, train_julia_arch
+    from mokka_decisions.arch_julia import make_seeded_julia_arch, train_julia_arch
     from transformers import AutoTokenizer
 
     tokenizer = AutoTokenizer.from_pretrained("jhu-clsp/mmBERT-small")
     for name, kwargs in (("julias_ordinal", dict(ordinal_case_ids=ordinal_ids)),
                          ("julias_probs", dict(soft_targets=soft_targets))):
-        model = JuliaArchScorer("jhu-clsp/mmBERT-small")
+        model = make_seeded_julia_arch("jhu-clsp/mmBERT-small", seed=42)
         t0 = _time.time()
         report = train_julia_arch(
             model, tokenizer, train, dev, qtypes,
@@ -1783,11 +1794,131 @@ def stage_typed_julia_small(bundle: Path, work: Path, config: str) -> None:
                          "best_dev": report["best_dev_accuracy"]}, indent=2), encoding="utf-8")
 
 
+def _state_dict_sha256(model) -> str:
+    """Deterministic content hash of the initial weights (per-tensor bytes)."""
+    import hashlib
+
+    h = hashlib.sha256()
+    for k, v in sorted(model.state_dict().items()):
+        h.update(k.encode("utf-8"))
+        h.update(v.detach().cpu().contiguous().numpy().tobytes())
+    return h.hexdigest()
+
+
+def stage_typed_e18_supervision(bundle: Path, work: Path, config: str) -> None:
+    """E18: controlled supervision contrast WITHIN JuliaArch-small.
+
+    Protocol frozen in docs/internal/E18_PROTOCOL_2026-10-09.md BEFORE any
+    results. 3 matched seeds x {ordinal artificial, native probabilities} on
+    score rows; identical init (hash-verified per pair), case order, data,
+    batch, steps, optimizer and schedule within each seed pair. Checkpoint
+    selection: correct-typed dev accuracy only (independent-v1 untouched).
+    """
+    import time as _time
+
+    import torch
+
+    if not torch.cuda.is_available():
+        raise SystemExit("typed_e18_supervision needs the GPU that was not assigned")
+    for i in range(torch.cuda.device_count()):
+        props = torch.cuda.get_device_properties(i)
+        log(f"e18 gpu[{i}]={props.name} vram={props.total_memory / 2**30:.1f} GiB")
+    root = _find_typed_root(bundle)
+    train = _load(root, "train")
+    dev = _load(root, "dev")
+    import json as _json
+
+    def _load_probs(split: str) -> dict:
+        return {_json.loads(l)["id"]: _json.loads(l)
+                for l in (root / "cases" / f"probabilities_{split}.jsonl").read_text(encoding="utf-8").splitlines()
+                if l.strip()}
+
+    probs_train = _load_probs("train")
+    probs_dev = {i: r["probabilities"] for i, r in _load_probs("dev").items()}
+    qtypes = {}
+    for split in ("train", "dev"):
+        for line in (root / "cases" / f"{split}.jsonl").read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            row = _json.loads(line)
+            if row["id"] in qtypes:
+                raise ValueError(f"Duplicate question id across splits: {row['id']}")
+            qtypes[row["id"]] = row["question_type"]
+    ordinal_ids = {c.id for c in train if qtypes[c.id] == "score"}
+    soft_targets = {i: probs_train[i]["probabilities"] for i in ordinal_ids}
+    log(f"e18: train={len(train)} dev={len(dev)} score_rows={len(ordinal_ids)} dev_refs={len(probs_dev)}")
+
+    from mokka_decisions.arch_julia import (
+        evaluate_julia_arch, make_seeded_julia_arch, train_julia_arch,
+    )
+    from safetensors.torch import load_file
+    from transformers import AutoTokenizer
+
+    tokenizer = AutoTokenizer.from_pretrained("jhu-clsp/mmBERT-small")
+    recipes = (("ord", dict(ordinal_case_ids=ordinal_ids)),
+               ("probs", dict(soft_targets=soft_targets)))
+    control_hashes: dict[int, str] = {}
+    summary = {"protocol": "docs/internal/E18_PROTOCOL_2026-10-09.md (frozen pre-launch)",
+               "init_hashes": {}, "pair_hash_equal": {}, "arms": {}}
+    for seed in (42, 43, 44):
+        for recipe, kwargs in recipes:
+            name = f"e18_{recipe}_s{seed}"
+            model = make_seeded_julia_arch("jhu-clsp/mmBERT-small", seed=seed)
+            init_hash = _state_dict_sha256(model)
+            if recipe == "ord":
+                control_hashes[seed] = init_hash
+            else:
+                equal = init_hash == control_hashes[seed]
+                summary["pair_hash_equal"][f"s{seed}"] = equal
+                if not equal:
+                    raise SystemExit(f"E18 pair init mismatch at seed {seed}: abort before training")
+            summary["init_hashes"][f"{recipe}_s{seed}"] = init_hash
+            t0 = _time.time()
+            report = train_julia_arch(
+                model, tokenizer, train, dev, qtypes,
+                output_dir=str(work / name), epochs=3, microbatch=4, grad_accumulation=8,
+                encoder_lr=2e-5, head_lr=1e-4, seed=seed, device="cuda",
+                max_length=1024, head_length=256,
+                reference_probabilities=probs_dev, **kwargs,
+            )
+            # best epoch per the frozen tie rule (>= keeps the LATEST best)
+            best_entry = None
+            for entry in report["history"]:
+                if best_entry is None or entry["dev"]["accuracy"] >= best_entry["dev"]["accuracy"]:
+                    best_entry = entry
+            model.load_state_dict(load_file(str(work / name / "checkpoint_best.safetensors")))
+            full = evaluate_julia_arch(model, tokenizer, dev, qtypes, device="cuda",
+                                       reference_probabilities=probs_dev, collect_rows=True)
+            with (work / name / "dev_rows_best.jsonl").open("w", encoding="utf-8") as f:
+                for row in full["rows"]:
+                    f.write(_json.dumps(row) + "\n")
+            latest = work / name / "checkpoint_latest.pt"
+            if latest.exists():
+                latest.unlink()  # keep /kaggle/working bounded (E15 v2 incident)
+            summary["arms"][name] = {
+                "recipe": recipe, "seed": seed, "init_sha256": init_hash,
+                "trained_s": round(_time.time() - t0, 1),
+                "best_dev_accuracy": report["best_dev_accuracy"],
+                "final_step": report["final_step"],
+                "best_epoch": best_entry["epoch"],
+                "best_epoch_dev": {k: v for k, v in best_entry["dev"].items() if k != "rows"},
+                "selected_checkpoint_dev": {k: v for k, v in full.items() if k != "rows"},
+            }
+            log(f"{name}: best_dev={report['best_dev_accuracy']:.4f} "
+                f"(epoch {best_entry['epoch']}) in {_time.time() - t0:.0f}s")
+            (work / "run_status.json").write_text(
+                _json.dumps({"stage": "typed_e18_supervision", "arm": name,
+                             "best_dev": report["best_dev_accuracy"]}, indent=2), encoding="utf-8")
+    (work / "e18_summary.json").write_text(_json.dumps(summary, indent=2), encoding="utf-8")
+    log("e18_supervision: done")
+
+
 TYPED_STAGES = {"typed_arms": stage_typed_arms, "typed_a1": stage_typed_a1,
           "typed_ord": stage_typed_ord, "typed_small_ord": stage_typed_small_ord,
           "typed_e15": stage_typed_e15, "typed_e15_seeds": stage_typed_e15_seeds,
           "typed_e15_completion": stage_typed_e15_completion,
           "typed_julia_small": stage_typed_julia_small,
+          "typed_e18_supervision": stage_typed_e18_supervision,
           # H2 (controlled, one variable): the dev curves were not saturated at
           # 4/8 epochs; extend epochs only — data/init/loss/seeds unchanged.
           "typed_ord2": lambda b, w, c: stage_typed_ord(b, w, c, epochs=6, out="base_ord6"),
