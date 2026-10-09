@@ -279,3 +279,19 @@ in `runs/**/run_report.json` and dataset manifests). Nothing here is projected.
 - **Hipótesis siguiente, todavía no confirmada:** entrenamiento con condiciones numéricas simples y pares de inversión. Para atribuir una mejora al currículo, comparar el orden por fases frente a los mismos ejemplos mezclados, con presupuestos e inicializaciones emparejados y evaluación nueva. Mejorar frente a un checkpoint sin entrenar no aísla el efecto del orden. Superar 0 en pares tampoco basta (respuestas binarias independientes uniformes alcanzan 0,25 en promedio). Ni un éxito demuestra una causa única ni un fracaso demuestra un límite arquitectónico.
 - Revisión local: `runs/e21-review-2026-10-09/verification.json`. Datos, fuentes y resultados históricos conservados. Las siete pruebas existentes del diagnóstico pasan, pero no detectaban los límites anteriores. Pendiente medir batch 1 y 16 para ambos modelos con intervalos cronometrados equivalentes; no se ha ejecutado esa medición en esta revisión.
 - Artefactos: `data/e20-diag2/`, `runs/e20-diag2/`, `runs/e21-efficiency/` (raw + summary con salvedades); scripts: `gen_e20_diag2.py`, `eval_e20_diag2.py`, `efficiency_e21.py`; tests 81/81.
+
+## E22 — Eficiencia homogénea (batch 1 y 16) + contraste de formato — COMPLETADO
+
+- Integrada la revisión E21: retractadas «primera medición homogénea» y «1,5×» (commit 1ff5643); conservadas las mediciones antiguas con sus asimetrías.
+- **Eficiencia v2** (`runs/e22-efficiency/`): DOS escenarios idénticos para los tres modelos (Julia por lotes vía `TransformerEngine.logits(rows)` con estado propio por fila), CPU 8 hilos float32, mismas 750 preguntas sin truncamiento, 2 invocaciones por modelo en orden alternado real (julia→ctrl→cand→cand→ctrl→julia), duraciones crudas guardadas, tamaño real del último lote (14) usado, reconstrucción de predicciones fuera del área cronometrada, **predicciones verificadas idénticas a la evaluación oficial en las 6 invocaciones**:
+
+| modelo | carga | b1 p50/p95 ms (latencia individual) | b16 p50 ms (duración LOTE de 16) | thr b1 / b16 |
+|---|---|---|---|---|
+| Julia oficial | 5,6 s | 86,6 / 119,3 | 1.750,8 | 11,1 / 9,6 preg/s |
+| Mokka ctrl_s43 | 6,1 s | 64,0 / 87,9 | 1.180,7 | 14,9 / 14,2 preg/s |
+| Mokka cand_s43 | 5,8 s | 64,4 / 88,2 | 1.184,3 | 14,8 / 14,1 preg/s |
+
+  En esta configuración: **~1,35× más rápido en latencia individual y ~1,48× en throughput** frente a Julia; inferencia sin tokenizar: 66,7 vs 95,7 ms/ítem. Memoria de proceso: **no medida** (syscalls fallidas); tamaño de archivo de pesos similar (~550 MB) reportado aparte.
+- **Batería de formato** (`data/e22-format/`, 352 filas, 352 contenidos únicos, 4 formatos con hechos/operadores/umbrales/respuestas idénticos, fronteras, balance por operador, pares de inversión de un hecho con pair_id transversal; verificador independiente sin importar el generador, 352/352; ejemplos frontera calculados a mano en tests): **el fallo numérico atómico es invariante al formato** — los tres modelos fijados (julia, ctrl_s43, cand_s43) en 0,48-0,56 en los cuatro formatos; el baseline constante SUPERA a todos (0,68-0,76); pares de inversión 0,00 ambos-correctos en todos los formatos. No se atribuye causa única (extracción numérica, vinculación campo-valor y comparación siguen como alternativas abiertas).
+- **Propuesta de entrenamiento preparada y NO lanzada** (`docs/internal/E22_TRAINING_PROPOSAL.md`): control (mezcla aleatoria) vs candidato (mismo multiconjunto ordenado por fases), inicialización/pasos/optimizador idénticos por semilla, evaluación atómica nueva sin fugas (umbrales/valores nuevos), criterios de éxito que superan el «>50 % / pares > 0» (Δ≥+15 pp vs control, pares ≥0,50, límites de regresión 2 pp) y declaración de qué NO probaría un fracaso.
+- Tests: 87/87 (6 nuevas de formato con fronteras manuales). Sin entrenamientos ni GPU.
