@@ -1080,6 +1080,136 @@ def stage_typed_e19_rulevar(bundle: Path, work: Path, config: str) -> None:
     (work / "e19_summary.json").write_text(_json.dumps(summary, indent=2), encoding="utf-8")
     log("e19_rulevar: done")
 
+
+
+def _find_e20_root(bundle: Path) -> Path:
+    for marker in bundle.rglob("e20-contrast/manifest.json"):
+        return marker.parent
+    raise SystemExit("e20-contrast dataset not found in bundle (e20-contrast/manifest.json)")
+
+
+def stage_typed_e20_contrast(bundle: Path, work: Path, config: str) -> None:
+    """E20: composition-paired vs coverage data contrast within JuliaArch-small.
+
+    Protocol frozen in docs/internal/E20_PROTOCOL_2026-10-09.md (Phase 1
+    diagnosis first: models fail rule composition OOD). Arms per seed
+    (identical init, hash-verified): ctrl = +1650 base questions (330 cases),
+    cand = +1650 paired base+flip questions (165 cases); same type mix, steps
+    (621x3), supervision convention (native probs on ORIGINAL score rows).
+    Selection: dev = original 570 + new 330. Sealed test untouched here.
+    """
+    import time as _time
+
+    import torch
+
+    if not torch.cuda.is_available():
+        raise SystemExit("typed_e20_contrast needs the GPU that was not assigned")
+    for i in range(torch.cuda.device_count()):
+        props = torch.cuda.get_device_properties(i)
+        log(f"e20 gpu[{i}]={props.name} vram={props.total_memory / 2**30:.1f} GiB")
+    root = _find_typed_root(bundle)
+    e20 = _find_e20_root(bundle)
+    train_orig = _load(root, "train")
+    dev_orig = _load(root, "dev")
+    ctrl_rows = _load_rows_file(e20 / "train_ctrl_rows.jsonl")
+    cand_rows = _load_rows_file(e20 / "train_cand_rows.jsonl")
+    dev_new = _load_rows_file(e20 / "dev_rows.jsonl")
+    import json as _json
+
+    def _load_probs(split: str) -> dict:
+        return {_json.loads(l)["id"]: _json.loads(l)
+                for l in (root / "cases" / f"probabilities_{split}.jsonl").read_text(encoding="utf-8").splitlines()
+                if l.strip()}
+
+    probs_train = _load_probs("train")
+    probs_dev = {i: r["probabilities"] for i, r in _load_probs("dev").items()}
+    qtypes = {}
+    for split in ("train", "dev"):
+        for line in (root / "cases" / f"{split}.jsonl").read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            row = _json.loads(line)
+            if row["id"] in qtypes:
+                raise ValueError(f"Duplicate question id across splits: {row['id']}")
+            qtypes[row["id"]] = row["question_type"]
+    for fname in ("train_ctrl_rows.jsonl", "train_cand_rows.jsonl", "dev_rows.jsonl"):
+        seen_in_file = set()
+        for line in (e20 / fname).read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                row = _json.loads(line)
+                if row["id"] in seen_in_file:
+                    raise ValueError(f"Duplicate id within {fname}: {row['id']}")
+                seen_in_file.add(row["id"])
+                qtypes.setdefault(row["id"], row["question_type"])
+                if qtypes[row["id"]] != row["question_type"]:
+                    raise ValueError(f"Conflicting question_type for {row['id']}")
+    soft_targets = {c.id: probs_train[c.id]["probabilities"] for c in train_orig
+                    if qtypes[c.id] == "score" and c.id in probs_train}
+    dev = dev_orig + dev_new
+    log(f"e20: orig_train={len(train_orig)} ctrl={len(ctrl_rows)} cand={len(cand_rows)} "
+        f"dev={len(dev)} soft_orig={len(soft_targets)}")
+
+    from mokka_decisions.arch_julia import (
+        evaluate_julia_arch, make_seeded_julia_arch, train_julia_arch,
+    )
+    from safetensors.torch import load_file
+    from transformers import AutoTokenizer
+
+    tokenizer = AutoTokenizer.from_pretrained("jhu-clsp/mmBERT-small")
+    arms = (("ctrl", train_orig + ctrl_rows, 3), ("cand", train_orig + cand_rows, 3))
+    init_hashes: dict = {}
+    summary = {"protocol": "docs/internal/E20_PROTOCOL_2026-10-09.md (frozen pre-launch)",
+               "seeds": [42, 43, 44], "init_hashes": {}, "seed_hash_equal": {}, "arms": {}}
+    for seed in (42, 43, 44):
+        for name, data, epochs in arms:
+            arm = f"e20_{name}_s{seed}"
+            model = make_seeded_julia_arch("jhu-clsp/mmBERT-small", seed=seed)
+            init_hash = _state_dict_sha256(model)
+            if seed in init_hashes:
+                equal = init_hash == init_hashes[seed]
+                summary["seed_hash_equal"][f"s{seed}"] = equal
+                if not equal:
+                    raise SystemExit(f"E20 init mismatch at seed {seed} ({name}): abort")
+            else:
+                init_hashes[seed] = init_hash
+            summary["init_hashes"][f"{name}_s{seed}"] = init_hash
+            t0 = _time.time()
+            report = train_julia_arch(
+                model, tokenizer, data, dev, qtypes,
+                output_dir=str(work / arm), epochs=epochs, microbatch=4, grad_accumulation=8,
+                encoder_lr=2e-5, head_lr=1e-4, seed=seed, device="cuda",
+                max_length=1024, head_length=256,
+                reference_probabilities=probs_dev, soft_targets=soft_targets,
+            )
+            best_entry = None
+            for entry in report["history"]:
+                if best_entry is None or entry["dev"]["accuracy"] >= best_entry["dev"]["accuracy"]:
+                    best_entry = entry
+            model.load_state_dict(load_file(str(work / arm / "checkpoint_best.safetensors")))
+            full = evaluate_julia_arch(model, tokenizer, dev, qtypes, device="cuda",
+                                       reference_probabilities=probs_dev, collect_rows=True)
+            with (work / arm / "dev_rows_best.jsonl").open("w", encoding="utf-8") as f:
+                for row in full["rows"]:
+                    f.write(_json.dumps(row) + "\n")
+            latest = work / arm / "checkpoint_latest.pt"
+            if latest.exists():
+                latest.unlink()
+            summary["arms"][arm] = {
+                "recipe": name, "seed": seed, "init_sha256": init_hash,
+                "trained_s": round(_time.time() - t0, 1),
+                "best_dev_accuracy": report["best_dev_accuracy"],
+                "final_step": report["final_step"], "best_epoch": best_entry["epoch"],
+                "best_epoch_dev": {k: v for k, v in best_entry["dev"].items() if k != "rows"},
+                "selected_checkpoint_dev": {k: v for k, v in full.items() if k != "rows"},
+            }
+            log(f"{arm}: best_dev={report['best_dev_accuracy']:.4f} (epoch {best_entry['epoch']}) "
+                f"steps={report['final_step']} in {_time.time() - t0:.0f}s")
+            (work / "run_status.json").write_text(
+                _json.dumps({"stage": "typed_e20_contrast", "arm": arm,
+                             "best_dev": report["best_dev_accuracy"]}, indent=2), encoding="utf-8")
+    (work / "e20_summary.json").write_text(_json.dumps(summary, indent=2), encoding="utf-8")
+    log("e20_contrast: done")
+
 STAGES = {"typed_arms": stage_typed_arms, "typed_a1": stage_typed_a1,
           "typed_ord": stage_typed_ord, "typed_small_ord": stage_typed_small_ord,
           "typed_e15": stage_typed_e15, "typed_e15_seeds": stage_typed_e15_seeds,
@@ -1087,6 +1217,7 @@ STAGES = {"typed_arms": stage_typed_arms, "typed_a1": stage_typed_a1,
           "typed_julia_small": stage_typed_julia_small,
           "typed_e18_supervision": stage_typed_e18_supervision,
           "typed_e19_rulevar": stage_typed_e19_rulevar,
+          "typed_e20_contrast": stage_typed_e20_contrast,
           # H2 (controlled, one variable): the dev curves were not saturated at
           # 4/8 epochs; extend epochs only — data/init/loss/seeds unchanged.
           "typed_ord2": lambda b, w, c: stage_typed_ord(b, w, c, epochs=6, out="base_ord6"),

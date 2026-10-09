@@ -55,6 +55,7 @@ def main() -> int:
     parser.add_argument("--mm-dir", default=None, help="include a multimodal dataset dir as mm/")
     parser.add_argument("--typed-dir", default=None, help="include typed-decisions train dir as typed-v1/")
     parser.add_argument("--e19-dir", default=None, help="include e19-rulevar data dir as e19-rulevar/")
+    parser.add_argument("--e20-dir", default=None, help="include e20-contrast data dir as e20-contrast/")
     args = parser.parse_args()
 
     bundle = Path(args.bundle)
@@ -103,6 +104,11 @@ def main() -> int:
             if not (ed / "manifest.json").exists():
                 raise SystemExit(f"no e19 manifest under {ed}")
             shutil.copytree(ed, bundle / "e19-rulevar")
+        if args.e20_dir:
+            ed = Path(args.e20_dir)
+            if not (ed / "manifest.json").exists():
+                raise SystemExit(f"no e20 manifest under {ed}")
+            shutil.copytree(ed, bundle / "e20-contrast")
         (bundle / "dataset-metadata.json").write_text(
             json.dumps(
                 {
