@@ -3,6 +3,14 @@
 One row per executed experiment. Artifacts under `runs/` (gitignored; hashes
 in `runs/**/run_report.json` and dataset manifests). Nothing here is projected.
 
+## E28b — Semillas 44/45 receta E28 (kernel mokka-typed-e28b v1) — COMPLETADO: W1 falla por un pelo; hueco en la dicotomía
+
+- **testC 1,000 EN AMBAS** (ya 4/4 semillas con testC perfecto; la era del techo de 96 filas quedó atrás del todo). s44: interp(D) 0,947 · extrap(D) 0,813 · **E-interp 0,8966 con 8/8 puros (falla 0,90 por UNA fila)** · E-extrap 0,857 · VE2 7/10 · V5-hist 6/6 · sd_n 17/17. s45: **interp(D) 1,000** · extrap(D) 0,938 · E-interp 0,931 (8/8) · E-extrap 0,821 (falla 0,85 por 3 pp; puros 2/8) · VE2 9/10 · sd_n 17/17.
+- **W1 formal: FALSO** (ninguna clava los 4 criterios simultáneos). **W2 tampoco describe la realidad** (ambas superan con claridad el nivel s42; cada una falla UN criterio por 1 fila / 3 pp / 1 barrido — jitter en el umbral, no trade-off sistemático). La dicotomía congelada tenía otro hueco (lección repetida de E26b: las reglas de bifurcación deben cubrir la región del casi-éxito).
+- Lectura sustantiva: la capacidad central (testC/dev 1,000, sd_n 17/17, V5-hist 6/6) es TÍPICA en 4/4 semillas; los criterios de borde (E-interp/extrap/VE2) oscilan alrededor de las barras según semilla.
+- Nota de proceso (declarada): E29 se lanzó en paralelo por delegación del usuario ANTES de poder evaluar W1; el protocolo E29 se congeló de forma independiente y su informatividad (retención de la capacidad en la candidata s43) no depende de W1.
+- Informe `runs/e28b-analysis/` (analizador versionado). Commits: prep en el linaje `e4850433`+stage, cierre.
+
 ## E28 — Extremos + cadenas de monotonía (kernel mokka-typed-e28 v1) — COMPLETADO: lectura (iv), replantear
 
 - Sobre la rejilla E27 intacta (736 filas): +16 valores extremos (18,4-25,4 / 108,3-124,6 con la misma rejilla de 8 offsets) + 8 cadenas de monotonía (umbral fijo × 10 valores ascendentes) = 944 filas, balance 472/472. Receta idéntica (dev-paciencia-10, semillas 42/43).
