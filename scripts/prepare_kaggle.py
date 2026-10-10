@@ -59,6 +59,7 @@ def main() -> int:
     parser.add_argument("--e23-dir", default=None, help="include e23-numeric data dir as e23-numeric/")
     parser.add_argument("--e24-dir", default=None, help="include e24-fit data dir as e24-fit/")
     parser.add_argument("--e25-dir", default=None, help="include e25-thrvar data dir as e25-thrvar/")
+    parser.add_argument("--e26-dir", default=None, help="include e26-order data dir as e26-order/")
     args = parser.parse_args()
 
     bundle = Path(args.bundle)
@@ -127,6 +128,11 @@ def main() -> int:
             if not (ed / "manifest.json").exists():
                 raise SystemExit(f"no e25 manifest under {ed}")
             shutil.copytree(ed, bundle / "e25-thrvar")
+        if args.e26_dir:
+            ed = Path(args.e26_dir)
+            if not (ed / "manifest.json").exists():
+                raise SystemExit(f"no e26 manifest under {ed}")
+            shutil.copytree(ed, bundle / "e26-order")
         (bundle / "dataset-metadata.json").write_text(
             json.dumps(
                 {

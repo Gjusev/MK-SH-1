@@ -492,7 +492,7 @@ def stage_baselines(bundle: Path, work: Path, config: str) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--stage", default="typed_e25_thrvar",
+        "--stage", default="typed_e26_order",
         help="comma-separated stages: smoke,train,resume_test,eval,baselines",
     )
     parser.add_argument("--config", default="configs/train.yaml")  # bundle v1 carries pilot-budget data

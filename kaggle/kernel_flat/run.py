@@ -493,7 +493,7 @@ def stage_baselines(bundle: Path, work: Path, config: str) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--stage", default="typed_e25_thrvar",
+        "--stage", default="typed_e26_order",
         help="comma-separated stages: smoke,train,resume_test,eval,baselines",
     )
     parser.add_argument("--config", default="configs/train.yaml")  # bundle v1 carries pilot-budget data
@@ -2995,6 +2995,124 @@ def stage_typed_e25_thrvar(bundle: Path, work: Path, config: str) -> None:
     log(f"e25_thrvar: done — {summary['verdicts']}")
 
 
+
+
+def _find_e26_root(bundle: Path) -> Path:
+    for marker in bundle.rglob("e26-order/manifest.json"):
+        return marker.parent
+    raise SystemExit("e26-order dataset not found in bundle (e26-order/manifest.json)")
+
+
+def stage_typed_e26_order(bundle: Path, work: Path, config: str) -> None:
+    """E26: numeric ORDER with the same-decade shortcut broken + equal-budget control.
+
+    Frozen protocol docs/internal/E26_PROTOCOL_2026-10-10.md (recommendation of the
+    E25 review). Two arms with equal rows/steps/evals: treatment (non-decade-aligned
+    thresholds 41..92, all four quadrants incl. same-decade negatives and far
+    positives, threshold-only AND value-only pairs) vs control (decade-aligned
+    30..100, E25-style placement where floor(v/10)==floor(t/10) still scores 0.917).
+    Shared dev/C/D/monotonicity evals are opened only after each finalist (final
+    checkpoint) is fixed. Reuses the E25 instrumented train loop UNCHANGED.
+    """
+    import json as _json
+
+    import torch
+
+    if not torch.cuda.is_available():
+        raise SystemExit("typed_e26_order needs the GPU that was not assigned")
+    hardware = _e25_hardware_report()
+    (work / "hardware.json").write_text(_json.dumps(hardware, indent=2), encoding="utf-8")
+    log(f"e26 hardware: {hardware}")
+    e26 = _find_e26_root(bundle)
+    _, dev_cases, _ = _e24_cases_and_qtypes(e26 / "dev_rows.jsonl")
+    eval_specs = (("known", "test_c_rows.jsonl"), ("new", "test_d_rows.jsonl"),
+                  ("mono", "mono_rows.jsonl"))
+    qtypes, eval_cases, seen = {}, {}, set()
+    for fname in (("train_treat_rows.jsonl", "train_ctrl_rows.jsonl", "dev_rows.jsonl")
+                  + tuple(f for _, f in eval_specs)):
+        for r in [_json.loads(l) for l in (e26 / fname).read_text(encoding="utf-8").splitlines() if l.strip()]:
+            if r["id"] in seen:
+                raise ValueError(f"duplicate id: {r['id']}")
+            seen.add(r["id"])
+            qtypes[r["id"]] = r["question_type"]
+    for name, fname in eval_specs:
+        _, cases, _ = _e24_cases_and_qtypes(e26 / fname)
+        eval_cases[name] = cases
+    log(f"e26: dev={len(dev_cases)} evals={ {k: len(v) for k, v in eval_cases.items()} }")
+
+    from mokka_decisions.arch_julia import make_seeded_julia_arch
+    from safetensors.torch import save_file
+    from transformers import AutoTokenizer
+
+    tokenizer = AutoTokenizer.from_pretrained("jhu-clsp/mmBERT-small")
+
+    def run_arm(arm: str, seed: int, preflight: bool, epochs_max: int = 300) -> dict:
+        _, train_cases, _ = _e24_cases_and_qtypes(e26 / f"train_{arm}_rows.jsonl")
+        log(f"e26 arm={arm} s{seed}: train={len(train_cases)}")
+        arm_dir = work / f"s{seed}_{arm}"
+        arm_dir.mkdir(parents=True, exist_ok=True)
+        model = make_seeded_julia_arch("jhu-clsp/mmBERT-small", seed=seed)
+        init_hash = _state_dict_sha256(model)
+        save_file(dict(model.state_dict()), str(arm_dir / "initial.safetensors"),
+                  metadata={"format": "pt"})
+        model = model.to("cuda")
+        pre = None
+        if preflight:
+            pre = _e24_preflight(model, tokenizer, train_cases, qtypes,
+                                 arm_dir / "initial.safetensors", init_hash, "cuda")
+            log(f"e26 preflight {arm} s{seed}: OK")
+        result = _e25_train_loop(model, tokenizer, train_cases, dev_cases, qtypes, arm_dir,
+                                 seed=seed, device="cuda", epochs_max=epochs_max,
+                                 eval_cases=eval_cases)
+        result["init_sha256"] = init_hash
+        result["preflight"] = pre
+        log(f"e26 {arm} s{seed}: fit={result['fit']} final_train={result['final_train_acc']:.4f} "
+            f"final_dev={result['final_dev_acc']:.4f} epochs={result['epochs_run']} "
+            f"eff={result['effective_steps']}/{result['attempted_steps']} in {result['trained_s']}s")
+        (work / "run_status.json").write_text(
+            _json.dumps({"stage": "typed_e26_order", "arm": arm, "seed": seed,
+                         "fit": result["fit"], "final_train_acc": result["final_train_acc"]}),
+            encoding="utf-8")
+        return result
+
+    summary = {
+        "protocol": "docs/internal/E26_PROTOCOL_2026-10-10.md (frozen pre-launch)",
+        "objective": ("learn numeric ORDER (value >= question threshold) with the "
+                      "same-decade shortcut broken in treatment vs an equal-budget "
+                      "shortcut-compatible control; NOT vs Julia, NOT forgetting"),
+        "recipe": {"architecture": "JuliaArchScorer(mmBERT-small), unchanged",
+                   "init": "upstream encoder + seeded fresh head",
+                   "epochs_max": 300, "max_effective_steps": 900, "microbatch": 4,
+                   "grad_accumulation": 8, "encoder_lr": 2e-5, "head_lr": 1e-4,
+                   "weight_decay": 0.01, "warmup_ratio": 0.05, "max_grad_norm": 1.0,
+                   "amp": True, "shuffle": "per epoch", "loss": "hard CE",
+                   "early_stop": "train accuracy == 1.0 at 3 consecutive epoch ends",
+                   "fit_criterion": "train accuracy >= 0.95 at the final epoch",
+                   "selection": "finalist = FINAL checkpoint; dev tracked, never selected on",
+                   "train_loop": "identical to E25 (_e25_train_loop, instrumentation per E24 review)"},
+        "data": {"treat": 96, "ctrl": 96, "dev": 48,
+                 "evals": {k: len(v) for k, v in eval_cases.items()}},
+        "hardware": hardware,
+        "arms": {}, "verdicts": {},
+        "forgetting_experiment": "NOT launched in E26 (after order acquisition)",
+    }
+    r42 = run_arm("treat", 42, preflight=True)
+    summary["arms"]["treat_s42"] = r42
+    summary["verdicts"]["fit_treat_s42"] = r42["fit"]
+    if r42["fit"]:
+        summary["arms"]["treat_s43"] = run_arm("treat", 43, preflight=False)
+        summary["verdicts"]["fit_treat_s43"] = summary["arms"]["treat_s43"]["fit"]
+    c42 = run_arm("ctrl", 42, preflight=False)
+    summary["arms"]["ctrl_s42"] = c42
+    summary["verdicts"]["fit_ctrl_s42"] = c42["fit"]
+    if c42["fit"]:
+        summary["arms"]["ctrl_s43"] = run_arm("ctrl", 43, preflight=False)
+        summary["verdicts"]["fit_ctrl_s43"] = summary["arms"]["ctrl_s43"]["fit"]
+    (work / "e26_summary.json").write_text(_json.dumps(summary, indent=2, default=str),
+                                           encoding="utf-8")
+    log(f"e26_order: done — {summary['verdicts']}")
+
+
 TYPED_STAGES = {"typed_arms": stage_typed_arms, "typed_a1": stage_typed_a1,
           "typed_ord": stage_typed_ord, "typed_small_ord": stage_typed_small_ord,
           "typed_e15": stage_typed_e15, "typed_e15_seeds": stage_typed_e15_seeds,
@@ -3006,6 +3124,7 @@ TYPED_STAGES = {"typed_arms": stage_typed_arms, "typed_a1": stage_typed_a1,
           "typed_e23_numeric": stage_typed_e23_numeric,
           "typed_e24_fit": stage_typed_e24_fit,
           "typed_e25_thrvar": stage_typed_e25_thrvar,
+          "typed_e26_order": stage_typed_e26_order,
           # H2 (controlled, one variable): the dev curves were not saturated at
           # 4/8 epochs; extend epochs only — data/init/loss/seeds unchanged.
           "typed_ord2": lambda b, w, c: stage_typed_ord(b, w, c, epochs=6, out="base_ord6"),
