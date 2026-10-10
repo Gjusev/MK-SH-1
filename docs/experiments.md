@@ -3,6 +3,24 @@
 One row per executed experiment. Artifacts under `runs/` (gitignored; hashes
 in `runs/**/run_report.json` and dataset manifests). Nothing here is projected.
 
+## E24 — Prueba mínima de AJUSTE numérico (kernel mokka-typed-e24 v1) — COMPLETADO
+
+- Objetivo diagnóstico (no generalización): ¿puede JuliaArch-small AJUSTAR 48 problemas con un único campo numérico (`motor_temp_c`), un operador (`>=`, «at least»), un umbral (60) y pregunta directa No/Sí? El gradiente dominante de las tareas originales queda ELIMINADO (solo se entrena con el microconjunto). Protocolo congelado antes de entrenar; encargo tras la revisión E23 (los checkpoints E23 fallaban incluso en las 656 filas numéricas VISTAS).
+- Datos: 48 train (16 pares de inversión que difieren SOLO en el valor + frontera exacta 60.0→Sí + near-boundaries) · 32 dev balanceado con valores disjuntos · tres contrasts condicionales: 64 valores nuevos, 48 filas con umbrales nuevos (45/75/90, fronteras incluidas), 64 filas con el campo renombrado (`bearing_temp_c`, mismos valores → delta puro de nombre). **256/256 etiquetas re-derivadas por verificador independiente** (regex sobre pregunta + parseo de estado); serialización sin truncamientos verificada a nivel de tokens; 21 tests con literales calculados a mano (suite 119/119).
+- Preflight en minibatch real, todo verde: loss finita 0,690≈ln2, autograd activo, gradientes no nulos en encoder (0,52) Y cabeza (0,37), pesos cambian tras optimizer.step, correspondencia ejemplos↔logits↔targets (lote vs fila aislada, 3,3e-07), recarga del inicial verificada por hash.
+- **Veredicto: FIT_CONFIRMED (2/2 semillas).** s42 ajusta en la época 24 (parada temprana a 30, 60 pasos de 300 presupuestados); s43 en la 20 (23 épocas, 46 pasos). Train 1,000 y dev 1,000 en ambas; transición brusca tras ~14 épocas en meseta 0,50 (pico de gradiente pre-clip 13→79 durante la transición; una época con norma inf = salto normal de AMP).
+- **Contrasts separados (checkpoint final, sin cherry-picking):**
+
+| contraste | s42 | s43 | lectura |
+|---|---|---|---|
+| valores nuevos (64) | **1,000** | **1,000** | generalización de valores perfecta; 16/16 pares ambos-correctos |
+| campo renombrado (64) | **1,000** | **1,000** | la vinculación campo-valor en JSON generaliza al nombre nuevo |
+| umbrales nuevos (48) | 0,500 | 0,500 | 0 pares; **48/48 predicciones siguen `value ≥ 60`**: el modelo aplica el umbral memorizado y NO lee el de la pregunta |
+
+- Conclusión mecanística separada: la arquitectura y el pipeline PUEDEN aprender la comparación numérica (ajuste rápido, generalización perfecta a valores y nombres de campo). La habilidad no adquirida es **leer el umbral de la pregunta**: predicciones exactamente consistentes con el umbral de entrenamiento, sin sesgo de clase (16 No/32 Sí). E23 queda recontextualizado: «incapacidad arquitectónica» y «vinculación JSON» dejan de ser las hipótesis líderes; quedan la interferencia de la mezcla (4.950 originales) y el multi-umbral/multi-campo como causas abiertas del fallo en mezcla.
+- Experimento de olvido PREPARADO, NO lanzado (E25: reanudar el checkpoint ajustado con tareas originales mezcladas y medir el microconjunto antes/después).
+- Artefactos: `runs/kaggle-typed-e24/` (2×5 checkpoints: inicial/e015/final + curvas por época + predicciones 80 filas/semilla + evals por fila + preflight), `runs/e24-analysis/`, `runs/e24-prep/`; 21 hashes. Consumo: ~5 min de GPU (T4×2). Commits: `caadcc0` (revisión E23), `f65bfb9f` (prep), cierre.
+
 ## E1 — TF-IDF + logistic regression (local CPU)
 
 - Data: pilot build (`data_hash c4354b6b9bda6b44`), train utterances 54,606
