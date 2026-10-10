@@ -128,7 +128,7 @@ def analyze(arm, meta):
 
 def main() -> int:
     meta = load_meta()
-    summary = json.loads((RUN / "e27_summary.json").read_text(encoding="utf-8"))
+    summary = json.loads((RUN / "e28_summary.json").read_text(encoding="utf-8"))
     arms = {a: analyze(a, meta) for a in ARMS}
     both = lambda key: all(a in arms and arms[a].get(key) for a in ARMS)
 
@@ -171,7 +171,7 @@ def main() -> int:
                          "final_dev": summary["results"][a]["final_dev_acc"]}
                      for a in ARMS},
     }
-    (OUT / "e27_report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+    (OUT / "e28_report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     (OUT / "artifact_hashes.json").write_text(json.dumps(hashes, indent=2, sort_keys=True),
                                               encoding="utf-8")
     print(json.dumps({"verdicts": verdicts,

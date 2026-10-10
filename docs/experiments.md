@@ -3,6 +3,15 @@
 One row per executed experiment. Artifacts under `runs/` (gitignored; hashes
 in `runs/**/run_report.json` and dataset manifests). Nothing here is projected.
 
+## E28 — Extremos + cadenas de monotonía (kernel mokka-typed-e28 v1) — COMPLETADO: lectura (iv), replantear
+
+- Sobre la rejilla E27 intacta (736 filas): +16 valores extremos (18,4-25,4 / 108,3-124,6 con la misma rejilla de 8 offsets) + 8 cadenas de monotonía (umbral fijo × 10 valores ascendentes) = 944 filas, balance 472/472. Receta idéntica (dev-paciencia-10, semillas 42/43).
+- **Ajuste 2/2** (train 1.000; dev 1.000 ambas; best_dev 1.000@17/@23; parada a las 28/34 épocas, 834/1015 pasos efectivos). **Guarda de regresión testC PASS: 0,938/1.000.** sd_n 17/17 ambas.
+- **Déficits residuales de E27: MEJORAN ENORME en dirección exacta pero no cierran en ambas semillas.** testE-extrap 0,643/0,661 → **0,821/0,857** (puros 6/8 ambas). Monotonía VE2 5-6/10 → **7 y 9/10** (s43 pasa 0,80; V5 histórico 5-6/6, s43 perfecto).
+- **Lectura (iv) pre-registrada: interferencia** — s42 baja interp de 0,888 a 0,853 (unas 2 filas; control roto en esa semilla mientras s43 sube a 0,931 con 8/8 puros). La regla congelada manda PARAR Y REPLANTEAR, no relanzar.
+- Imagen coherente: con 944 filas la capacidad es grande pero **dependiente de semilla en los bordes**: s43 casi completo en todo (testC 1,000 · interp 0,931 · extrap 0,857 · mono 9/10); s42 cambia un poco de interp por extrap. Opciones de replanteo (a la espera del usuario): (a) 2-4 semillas más (¿varianza?); (b) más densidad en bordes sin tocar el núcleo; (c) declarar s43-nivel la versión candidata y lanzar el estudio de OLVIDO como prueba de integración.
+- Artefactos: `runs/kaggle-typed-e28/`, `runs/e28-analysis/` (veredictos i-iv + hashes). Commits: `0a9ac914` (prep), cierre.
+
 ## E27 — REJILLA DENSA DE COMPARACIÓN (kernel mokka-typed-e27 v1) — COMPLETADO: COBERTURA CONFIRMADA, EL TECHO SE ROMPE
 
 - La intervención diseñada por la revisión E26: 736 filas (92 valores exactos E26 × 8 umbrales v±{0,1,7,15,25}; 4Sí/4No por valor idéntico → toda regla que ignore la pregunta = 0,500 EXACTO en train), parada por dev-paciencia-10, semillas 42/43, testE fresco de DOS decimales (incontaminable por construcción).
