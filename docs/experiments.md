@@ -3,6 +3,18 @@
 One row per executed experiment. Artifacts under `runs/` (gitignored; hashes
 in `runs/**/run_report.json` and dataset manifests). Nothing here is projected.
 
+## E27 — REJILLA DENSA DE COMPARACIÓN (kernel mokka-typed-e27 v1) — COMPLETADO: COBERTURA CONFIRMADA, EL TECHO SE ROMPE
+
+- La intervención diseñada por la revisión E26: 736 filas (92 valores exactos E26 × 8 umbrales v±{0,1,7,15,25}; 4Sí/4No por valor idéntico → toda regla que ignore la pregunta = 0,500 EXACTO en train), parada por dev-paciencia-10, semillas 42/43, testE fresco de DOS decimales (incontaminable por construcción).
+- **V1 ajuste 2/2** (train 1,000; s42 dev 0,979 best@20, s43 dev 1,000 best@18; parada por paciencia a las 31/29 épocas con 708/661 pasos efectivos — el presupuesto ni se rozó). **V2 HISTÓRICO PASS 2/2: testC 0,979 y 1,000** — la barra que NINGUNA de 6 semillas cruzó con 96 filas (0,625-0,896) la cruzan AMBAS semillas con margen. testD interp 0,921/0,947 (≥0,90); extrap 0,750/0,750. Pares C 4/4 y 4/4.
+- **LECTURA (a) PRE-REGISTRADA: COBERTURA CONFIRMADA.** sd_n 17/17 y 16/17 (antes 8-10/17; ≥15/71 requerido) e interp ≥0,92: la rejilla densa enseña el orden que el atajo de decena no podía cubrir; capacidad y duración DESCARTADAS como límites (ya muertas por E26b). El contraste causal E26c→E27 con los MISMOS 92 valores: solo cambió la cobertura de umbrales y el techo desapareció.
+- **testE fresco (OOD real, dos decimales): interp 0,888/0,914 con puros 7/8 ambas** (s43 pasa 0,90; s42 a 2 filas); **extrap 0,643/0,661 falla accuracy PERO con puros 8/8 y 4/8** — fallo sistemático específico de los extremos (21,83/118,57), no ruido. **VE2 monotonía 5-6/10** (<0,80; antes 0-2/6): mejora grande, déficit residual de orden en valor declarado. Déficits residuales honestos: extrap de testE y monotonía plena.
+- Artefactos: `runs/kaggle-typed-e27/` (2 semillas × {initial/final/e025, curvas, predicciones, 4 evals}), `runs/e27-analysis/` (veredictos + hashes). E27b control de filas/pasos iguales pre-registrado si se quiere afirmación causal estricta del diseño (la lectura (a) ya lo respalda con E26c como control natural). Olvido sigue preparado — AHORA sí significativo con orden adquirido. Commits: `aabab22a` (prep), `138fec68` (analizador), cierre.
+
+## E26c — Semillas 46/47 de replicación (kernel mokka-typed-e26c v1) — COMPLETADO
+
+- Brazo de replicación de la revisión E26b (D3 indeterminado). Receta E26 exacta, tests históricos descriptivos. **R2 confirmado**: s46 testC 0,771 (pares 3/4), s47 0,688 (pares 3/4) — NINGUNA cruza V2. Con n=6 (0,625 / 0,875 / 0,896 / 0,667 / 0,771 / 0,688; rango 27 pp) el techo sub-0,90 de 96 filas queda replicado: varianza real, pero sin semillas ganadoras. Informe `runs/e26c-analysis/`. Olvido NO lanzado.
+
 ## E26b — Diagnóstico: regla de parada + varianza de semilla (kernel mokka-typed-e26b v2) — COMPLETADO
 
 - Encargo del usuario tras la revisión E26: discriminadores baratos ANTES de E27. Sin datos nuevos: brazo A reanuda los finalistas s42/s43-trat (sha256 verificado en kernel contra literales congelados) SIN parada temprana hasta completar el presupuesto original (241/258 épocas más, 720/770 pasos efectivos); brazo B entrena semillas 44/45 frescas con la receta E26 exacta. Tests C/D/mono HISTÓRICOS (inspeccionados en E26): lectura descriptiva, sin afirmaciones OOD. Protocolo congelado con D1/D2/D3 pre-registrados. Prep `e4850433`; suite 161/161; smoke CPU PASS.
