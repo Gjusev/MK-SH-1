@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import random
 import statistics
 import sys
@@ -37,6 +38,45 @@ def data_meta() -> dict:
 def load_eval(seed: str, name: str) -> list[dict]:
     return [json.loads(l) for l in (KERNEL_RUN / f"s{seed}" / f"eval_{name}.jsonl")
             .read_text(encoding="utf-8").splitlines() if l.strip()]
+
+
+def validate_eval(rows: list[dict], meta: dict, expected_ids: set[str]) -> None:
+    ids = [r["id"] for r in rows]
+    if not rows or len(ids) != len(set(ids)) or set(ids) != expected_ids:
+        raise ValueError("Missing, duplicate or unexpected evaluation IDs")
+    for r in rows:
+        m = meta[r["id"]]
+        gold = next(i for i, o in enumerate(m["options"]) if o["id"] == m["target_option"])
+        if r["group_id"] != m["group_id"] or r["gold_idx"] != gold:
+            raise ValueError(f"Gold/group mismatch: {r['id']}")
+        if r["correct"] != int(r["pred_idx"] == gold):
+            raise ValueError(f"Incorrect stored accuracy: {r['id']}")
+
+
+def pairs_by_range(rows: list[dict], meta: dict) -> dict:
+    """Count actual complete pairs, including mixed interpolation/extrapolation."""
+    groups = defaultdict(list)
+    for row in rows:
+        m = meta[row["id"]]
+        if m.get("pair"):
+            groups[m["pair"]].append(row)
+    outcomes = {"interp": [], "extrap": [], "mixed": []}
+    for pid, members in groups.items():
+        if len(members) != 2 or {meta[r["id"]]["variant"] for r in members} != {"pair_thrlo", "pair_thrhi"}:
+            raise ValueError(f"Incomplete or duplicate pair: {pid}")
+        ranges = {meta[r["id"]]["thr_range"] for r in members}
+        key = "mixed" if ranges == {"interp", "extrap"} else next(iter(ranges))
+        if key not in outcomes:
+            raise ValueError(f"Unexpected pair range: {ranges}")
+        outcomes[key].append(int(all(r["correct"] for r in members)))
+    return {key: {"n": len(vals), "both_correct": sum(vals),
+                  "rate": statistics.mean(vals) if vals else None}
+            for key, vals in outcomes.items()}
+
+
+def same_decade_reference(row: dict) -> bool:
+    """Post-hoc shortcut baseline; NOT a numeric >= comparator."""
+    return math.floor(row["value"] / 10) == math.floor(row["threshold"] / 10)
 
 
 def summarize(rows: list[dict], meta: dict) -> dict:
@@ -77,9 +117,16 @@ def verdict_bar(stats: dict) -> bool:
     return stats["accuracy"] >= 0.90 and stats["pairs_both"] is not None and stats["pairs_both"] >= 0.75
 
 
+def registered_verdict(stats: dict) -> str:
+    """Never drop a preregistered pair requirement after discovering no pairs."""
+    if stats["pairs_both"] is None or stats["pairs_n"] == 0:
+        return "not_assessable_missing_pairs"
+    return "passed" if verdict_bar(stats) else "failed"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--out", type=Path, default=ROOT / "runs/e25-analysis/e25_report.json")
+    parser.add_argument("--out", type=Path, default=ROOT / "runs/e25-analysis/e25_report_v2.json")
     args = parser.parse_args()
     if args.out.exists():
         raise SystemExit(f"Refusing to overwrite: {args.out}")
@@ -88,9 +135,16 @@ def main() -> int:
     hardware = json.loads((KERNEL_RUN / "hardware.json").read_text(encoding="utf-8"))
     meta = data_meta()
     report = {"protocol": summary["protocol"], "hardware": hardware,
-              "seeds": {}, "verdicts": {}, "references": {}}
+              "revision": 2, "seeds": {}, "verdicts": {}, "references": {},
+              "qualifications": [
+                  "Bootstrap intervals are empirical resampling ranges conditional on these cases; [1,1] with all successes is degenerate, not certainty of population accuracy.",
+                  "V3 requires both accuracy and complete pairs; extrapolation has no pure pairs, so its registered verdict is not assessable. Accuracy is reported descriptively.",
+                  "The same-decade baseline is post-hoc, demonstrates a remaining shortcut, and does not identify the model's internal algorithm.",
+              ]}
 
     seeds = sorted(summary["seeds"])
+    if not seeds:
+        raise ValueError("No seeds available")
     for seed in seeds:
         res = summary["seeds"][seed]
         curves = [json.loads(l) for l in (KERNEL_RUN / f"s{seed}" / "curves.jsonl")
@@ -110,14 +164,21 @@ def main() -> int:
                  "preflight": "OK" if res.get("preflight") else ("skipped (seed 43)" if seed == "43" else None)}
         for name in ("known", "new"):
             rows = load_eval(seed, name)
+            prefix = "e25|testc|" if name == "known" else "e25|testd|"
+            validate_eval(rows, meta, {identity for identity in meta if identity.startswith(prefix)})
             entry[f"test_{name}"] = summarize(rows, meta)
             entry[f"test_{name}"]["ci_by_base_case"] = grouped_bootstrap_ci(rows)
+            entry[f"test_{name}"]["bootstrap_degenerate"] = len({r["correct"] for r in rows}) == 1
             if name == "new":
+                entry["new_pairs_by_range"] = pairs_by_range(rows, meta)
+                entry["mixed_interp_extrap_pairs_both"] = entry["new_pairs_by_range"]["mixed"]["rate"]
                 for part in ("interp", "extrap"):
                     sub = [r for r in rows if meta[r["id"]]["thr_range"] == part]
                     if sub:
                         entry[f"test_new_{part}"] = summarize(sub, meta)
                         entry[f"test_new_{part}"]["ci_by_base_case"] = grouped_bootstrap_ci(sub)
+                        entry[f"test_new_{part}"]["bootstrap_degenerate"] = len({r["correct"] for r in sub}) == 1
+                        entry[f"test_new_{part}"]["registered_verdict"] = registered_verdict(entry[f"test_new_{part}"])
         # V4: threshold-only pairs across both tests
         pair_rows = [r for name in ("known", "new") for r in load_eval(seed, name)
                      if meta[r["id"]].get("pair")]
@@ -132,23 +193,20 @@ def main() -> int:
     def all_seeds(pred):
         return all(pred(report["seeds"][s]) for s in seeds)
 
-    # V3b design note: every test-D pair spans interp<->extrap thresholds
-    # ((30,45) ... (85,100)); NO pure-extrap pair exists, so the pair bar is
-    # not applicable there (accuracy bar stands; mixed pairs reported separately).
+    # Test D has four pure-interp and two mixed pairs, with no pure-extrap pair.
+    # The missing registered requirement must not be converted into a pass.
     report["verdicts"] = {
         "V1_fit_train_ge_0.95": all_seeds(lambda e: e["fit"]),
         "V2_new_values_known_thresholds": all_seeds(lambda e: verdict_bar(e["test_known"])),
         "V3a_new_thresholds_interp_acc_and_pairs": all_seeds(
             lambda e: verdict_bar(e.get("test_new_interp", {"accuracy": 0, "pairs_both": None}))),
-        "V3b_new_thresholds_extrap_acc_only_pairs_not_applicable_by_design": all_seeds(
-            lambda e: e["test_new_extrap"]["accuracy"] >= 0.90),
+        "V3b_new_thresholds_extrap_acc_and_pairs": (
+            "not_assessable_missing_pairs"
+            if any(e["test_new_extrap"]["pairs_n"] == 0 for e in report["seeds"].values())
+            else ("passed" if all_seeds(lambda e: verdict_bar(e["test_new_extrap"])) else "failed")),
         "V4_threshold_only_pairs_cd_ge_0.90": all_seeds(
             lambda e: e["pairs_cd_both"] is not None and e["pairs_cd_both"] >= 0.90),
     }
-    for seed in seeds:
-        e = report["seeds"][seed]
-        e["mixed_interp_extrap_pairs_both"] = e["test_new"]["pairs_incomplete_in_subset"]
-
     # question-ignoring references evaluated on the data itself
     for name, fname in (("known", "test_known_thr_rows.jsonl"), ("new", "test_new_thr_rows.jsonl")):
         rows = [json.loads(l) for l in (DATA / fname).read_text(encoding="utf-8").splitlines() if l.strip()]
@@ -160,6 +218,10 @@ def main() -> int:
             "fixed_value_ge_60": sum((r["value"] >= 60) == g for r, g in zip(rows, gold)) / len(gold),
             "on_pairs_constant_yes": sum(pgold) / len(pgold),
             "on_pairs_fixed_value_ge_60": sum((r["value"] >= 60) == g for r, g in zip(pair_rows, pgold)) / len(pgold),
+            "posthoc_same_decade": sum(same_decade_reference(r) == g for r, g in zip(rows, gold)) / len(gold),
+            "posthoc_same_decade_agreement_by_seed": {
+                seed: sum(same_decade_reference(meta[r["id"]]) == r["pred_idx"]
+                          for r in load_eval(seed, name)) / len(rows) for seed in seeds},
         }
 
     args.out.parent.mkdir(parents=True, exist_ok=True)

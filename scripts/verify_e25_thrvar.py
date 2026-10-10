@@ -63,17 +63,21 @@ def pair_accuracy_cap(rows: list[dict]) -> dict:
                                      for r, g in zip(subset, gold)) / len(gold),
         }
     if pair_rows:
-        by_pair = defaultdict(dict)
+        by_pair = defaultdict(list)
         for r in pair_rows:
-            by_pair[r["pair"]][r["variant"]] = r["target_option"] == "true"
+            by_pair[r["pair"]].append(r)
+        for pid, members in by_pair.items():
+            if len(members) != 2 or {r["variant"] for r in members} != {"pair_thrlo", "pair_thrhi"}:
+                raise ValueError(f"Incomplete or duplicate pair: {pid}")
         out["pairs"]["fixed_rule_both_correct"] = sum(
-            1 for v in by_pair.values()
-            if len(v) == 2 and False in v.values())  # a question-ignoring rule cannot flip
+            all((json.loads(r["state"])["motor_temp_c"] >= 60) == (r["target_option"] == "true")
+                for r in members) for members in by_pair.values())
         # any deterministic state-only rule answers the same for both members
         # (identical state) => both-correct is impossible; count pairs where the
         # two golds differ as required:
         out["pairs"]["gold_opposite_pairs"] = sum(
-            1 for v in by_pair.values() if len(v) == 2 and set(v.values()) == {True, False})
+            1 for members in by_pair.values()
+            if {r["target_option"] for r in members} == {"true", "false"})
     return out
 
 
@@ -187,8 +191,10 @@ def main() -> int:
             for ref in ("constant_yes", "constant_no", "fixed_value_ge_60"):
                 if refs[ref] > 0.5 + 1e-9:
                     failures.append(f"{name}: question-ignoring rule {ref} exceeds 0.5 on pairs ({refs[ref]:.3f})")
-            if refs.get("gold_opposite_pairs") != cap and refs.get("gold_opposite_pairs") != pair_stats[name]:
-                pass  # informational below
+            if refs["gold_opposite_pairs"] != pair_stats[name]:
+                failures.append(f"{name}: not all pairs have opposite gold labels")
+            if refs["fixed_rule_both_correct"] != 0:
+                failures.append(f"{name}: fixed state-only rule solved a complete pair")
 
     # serialization: state intact at the tail, head untruncated, 2 markers
     try:
