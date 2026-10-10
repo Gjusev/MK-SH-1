@@ -493,7 +493,7 @@ def stage_baselines(bundle: Path, work: Path, config: str) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--stage", default="typed_e28_ext",
+        "--stage", default="typed_e28b_seeds",
         help="comma-separated stages: smoke,train,resume_test,eval,baselines",
     )
     parser.add_argument("--config", default="configs/train.yaml")  # bundle v1 carries pilot-budget data
@@ -3542,6 +3542,86 @@ def stage_typed_e28_ext(bundle: Path, work: Path, config: str) -> None:
 
 
 
+def stage_typed_e28b_seeds(bundle: Path, work: Path, config: str) -> None:
+    """E28b: fresh seeds 44/45 with the exact E28 recipe (variance check of the
+    edge trade-off seen in E28: s42 traded ~2 interp rows for extrap while s43
+    was near-complete). Tests whether the s43-level candidate is typical.
+    Tests C/D/mono/testE HISTORICAL/inspected: descriptive only.
+    """
+    import json as _json
+
+    import torch
+
+    if not torch.cuda.is_available():
+        raise SystemExit("typed_e28b_seeds needs the GPU that was not assigned")
+    hardware = _e25_hardware_report()
+    (work / "hardware.json").write_text(_json.dumps(hardware, indent=2), encoding="utf-8")
+    log(f"e28b hardware: {hardware}")
+    e28 = _find_e28_root(bundle)
+    e27 = _find_e27_root(bundle)
+    e26 = _find_e26_root(bundle)
+    _, train_cases, _ = _e24_cases_and_qtypes(e28 / "train_rows.jsonl")
+    _, dev_cases, _ = _e24_cases_and_qtypes(e26 / "dev_rows.jsonl")
+    eval_specs = (("known", e26, "test_c_rows.jsonl"), ("new", e26, "test_d_rows.jsonl"),
+                  ("mono", e26, "mono_rows.jsonl"), ("e", e27, "test_e_rows.jsonl"))
+    qtypes, eval_cases, seen = {}, {}, set()
+    for root, fname in [(e26, "dev_rows.jsonl")] + [(r, f) for _, r, f in eval_specs] + [(e28, "train_rows.jsonl")]:
+        for r in [_json.loads(l) for l in (root / fname).read_text(encoding="utf-8").splitlines() if l.strip()]:
+            if r["id"] in seen:
+                raise ValueError(f"duplicate id: {r['id']}")
+            seen.add(r["id"])
+            qtypes[r["id"]] = r["question_type"]
+    for name, root, fname in eval_specs:
+        _, cases, _ = _e24_cases_and_qtypes(root / fname)
+        eval_cases[name] = cases
+    log(f"e28b: train={len(train_cases)} dev={len(dev_cases)} "
+        f"evals={ {k: len(v) for k, v in eval_cases.items()} }")
+
+    from mokka_decisions.arch_julia import make_seeded_julia_arch
+    from safetensors.torch import save_file
+    from transformers import AutoTokenizer
+
+    tokenizer = AutoTokenizer.from_pretrained("jhu-clsp/mmBERT-small")
+
+    def run_seed(seed: int, preflight: bool) -> dict:
+        arm = work / f"s{seed}"
+        arm.mkdir(parents=True, exist_ok=True)
+        model = make_seeded_julia_arch("jhu-clsp/mmBERT-small", seed=seed)
+        init_hash = _state_dict_sha256(model)
+        save_file(dict(model.state_dict()), str(arm / "initial.safetensors"),
+                  metadata={"format": "pt"})
+        model = model.to("cuda")
+        pre = None
+        if preflight:
+            pre = _e24_preflight(model, tokenizer, train_cases, qtypes,
+                                 arm / "initial.safetensors", init_hash, "cuda")
+            log(f"e28b preflight s{seed}: OK")
+        result = _e25_train_loop(model, tokenizer, train_cases, dev_cases, qtypes, arm,
+                                 seed=seed, device="cuda", epochs_max=300,
+                                 eval_cases=eval_cases, early_stop=False, dev_patience=10)
+        result["init_sha256"] = init_hash
+        result["preflight"] = pre
+        log(f"e28b s{seed}: fit={result['fit']} final_dev={result['final_dev_acc']:.4f} "
+            f"best_dev={result['best_dev_acc']:.4f}@{result['best_dev_epoch']} "
+            f"epochs={result['epochs_run']} eff={result['effective_steps']}/{result['attempted_steps']}")
+        (work / "run_status.json").write_text(
+            _json.dumps({"stage": "typed_e28b_seeds", "seed": seed, "fit": result["fit"],
+                         "final_dev_acc": result["final_dev_acc"]}), encoding="utf-8")
+        return result
+
+    summary = {"protocol": "docs/internal/E28B_PROTOCOL_2026-10-10.md (frozen pre-launch)",
+               "objective": ("two more E28-recipe seeds: is the s42 edge trade-off variance? "
+                             "tests HISTORICAL/inspected: descriptive"),
+               "hardware": hardware, "results": {}}
+    for seed in (44, 45):
+        summary["results"][f"s{seed}"] = run_seed(seed, preflight=(seed == 44))
+    (work / "e28b_summary.json").write_text(_json.dumps(summary, indent=2, default=str),
+                                            encoding="utf-8")
+    log("e28b_seeds: done")
+
+
+
+
 TYPED_STAGES = {"typed_arms": stage_typed_arms, "typed_a1": stage_typed_a1,
           "typed_ord": stage_typed_ord, "typed_small_ord": stage_typed_small_ord,
           "typed_e15": stage_typed_e15, "typed_e15_seeds": stage_typed_e15_seeds,
@@ -3558,6 +3638,7 @@ TYPED_STAGES = {"typed_arms": stage_typed_arms, "typed_a1": stage_typed_a1,
           "typed_e26c_seeds": stage_typed_e26c_seeds,
           "typed_e27_grid": stage_typed_e27_grid,
           "typed_e28_ext": stage_typed_e28_ext,
+          "typed_e28b_seeds": stage_typed_e28b_seeds,
           # H2 (controlled, one variable): the dev curves were not saturated at
           # 4/8 epochs; extend epochs only — data/init/loss/seeds unchanged.
           "typed_ord2": lambda b, w, c: stage_typed_ord(b, w, c, epochs=6, out="base_ord6"),
