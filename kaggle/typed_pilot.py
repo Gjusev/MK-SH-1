@@ -1386,6 +1386,346 @@ def stage_typed_e23_numeric(bundle: Path, work: Path, config: str) -> None:
     (work / "e23_summary.json").write_text(_json.dumps(summary, indent=2), encoding="utf-8")
     log("e23_numeric: done")
 
+
+
+def _find_e24_root(bundle: Path) -> Path:
+    for marker in bundle.rglob("e24-fit/manifest.json"):
+        return marker.parent
+    raise SystemExit("e24-fit dataset not found in bundle (e24-fit/manifest.json)")
+
+
+def _e24_cases_and_qtypes(path: Path):
+    """Rows as raw dicts (metadata), DecisionCase objects, and the qtype map."""
+    import json as _json
+
+    from mokka_decisions.contracts import DecisionCase
+
+    rows = [_json.loads(l) for l in path.read_text(encoding="utf-8").splitlines() if l.strip()]
+    return rows, [DecisionCase.from_dict(r) for r in rows], {r["id"]: r["question_type"] for r in rows}
+
+
+E24_FIT_THRESHOLD = 0.95  # frozen: train accuracy required on the microset
+
+
+def _e24_grad_norm(grads) -> float:
+    """Global L2 norm over a list of gradient tensors (fp32)."""
+    import torch
+
+    if not grads:
+        return 0.0
+    return float(torch.linalg.vector_norm(torch.stack(
+        [torch.linalg.vector_norm(g.float()) for g in grads])).item())
+
+
+def _e24_preflight(model, tokenizer, train_cases, qtypes, init_path, init_hash, device):
+    """One REAL minibatch, before any training (frozen E24 protocol).
+
+    Finite loss + correct labels; train mode + autograd; finite non-null grads
+    in encoder AND head; effective weight change after optimizer.step; batched
+    vs per-row logit correspondence (fp32); then reload the pristine init
+    (hash-verified). The diagnostic optimizer.step must not leak into training.
+    """
+    import torch
+
+    from mokka_decisions.arch_julia import collate_julia, row_loss
+
+    keys = ("input_ids", "attention_mask", "marker_pos", "marker_mask", "qtype")
+    chunk = train_cases[:4]
+    batch = collate_julia(tokenizer, chunk, qtypes, 1024, 256, device)
+    for i, case in enumerate(chunk):
+        gold_idx = case.option_ids.index(case.target_option)
+        assert int(batch["targets"][i].item()) == gold_idx, (case.id, "label misaligned")
+    checks = {"labels_correct": True}
+
+    model.train()
+    checks["training_mode"] = bool(model.training)
+    with torch.autocast("cuda", enabled=(device == "cuda")):
+        logits = model(**{k: batch[k] for k in keys})
+        loss = row_loss(logits, batch["targets"], chunk, None, None)
+    checks["loss_finite"] = bool(torch.isfinite(loss).item())
+    checks["autograd_active"] = bool(loss.requires_grad)
+    checks["loss_value"] = float(loss.item())
+    loss.backward()
+
+    enc_grads = [p.grad for n, p in model.named_parameters() if n.startswith("encoder.") and p.grad is not None]
+    head_grads = [p.grad for n, p in model.named_parameters() if not n.startswith("encoder.") and p.grad is not None]
+    finite_grads = all(torch.isfinite(g).all().item() for g in enc_grads + head_grads)
+    checks.update({"grad_norm_encoder": round(_e24_grad_norm(enc_grads), 6),
+                   "grad_norm_head": round(_e24_grad_norm(head_grads), 6),
+                   "grads_finite": bool(finite_grads),
+                   "grads_nonzero": bool(_e24_grad_norm(enc_grads) > 0 and _e24_grad_norm(head_grads) > 0)})
+
+    # weight change after one optimizer.step: one sentinel param per group
+    # (picked dynamically — encoder param naming varies by architecture)
+    sentinel_enc = next(model.encoder.parameters())
+    sentinel_head = next(model.scorer.parameters())
+    before_enc = sentinel_enc.detach().clone()
+    before_head = sentinel_head.detach().clone()
+    torch.optim.AdamW(model.parameter_groups(2e-5, 1e-4), weight_decay=0.01).step()
+    delta_enc = float((sentinel_enc.detach() - before_enc).norm().item())
+    delta_head = float((sentinel_head.detach() - before_head).norm().item())
+    checks.update({"weight_delta_encoder": delta_enc, "weight_delta_head": delta_head,
+                   "weights_changed": bool(delta_enc > 0 and delta_head > 0)})
+
+    # example <-> logits <-> targets correspondence: batched vs isolated rows (fp32 eval)
+    model.eval()
+    with torch.inference_mode():
+        batched = model(**{k: batch[k] for k in keys}).float()
+        max_diff = 0.0
+        for i, case in enumerate(chunk):
+            single = collate_julia(tokenizer, [case], qtypes, 1024, 256, device)
+            l1 = model(**{k: single[k] for k in keys}).float()[0]
+            max_diff = max(max_diff, (l1[: len(case.options)]
+                                      - batched[i, : len(case.options)]).abs().max().item())
+    checks["batch_vs_single_max_abs_diff"] = max_diff
+    checks["example_logit_alignment"] = bool(max_diff <= 1e-4)
+
+    from safetensors.torch import load_file
+
+    model.load_state_dict(load_file(str(init_path)))
+    checks["init_restored"] = bool(_state_dict_sha256(model) == init_hash)
+    model.train()
+    if not all(v is True for k, v in checks.items() if isinstance(v, bool)):
+        raise SystemExit(f"E24 preflight FAILED: {checks}")
+    return checks
+
+
+def _e24_train_loop(model, tokenizer, train_cases, dev_cases, qtypes, arm: Path, *, seed,
+                    device="cuda", epochs_max=150, microbatch=4, grad_accumulation=8,
+                    eval_cases=None):
+    """E24 fitting loop: EXACT train_julia_arch recipe plus the protocol's
+    diagnostics (train/dev curves separated, grad norms, weight deltas,
+    intermediate checkpoints, early stop at 3 consecutive perfect epochs).
+    eval_cases: run the contrast evals on the FINAL checkpoint only if the fit
+    criterion holds (frozen rule)."""
+    import json as _json
+    import math
+    import random as _random
+    import time as _time
+
+    import torch
+
+    from mokka_decisions.arch_julia import collate_julia, evaluate_julia_arch, row_loss
+    from safetensors.torch import save_file
+
+    keys = ("input_ids", "attention_mask", "marker_pos", "marker_mask", "qtype")
+    model = model.to(device)
+    model.train()
+    usable = [c for c in train_cases if c.target_option]
+    steps_per_epoch = math.ceil(len(usable) / (microbatch * grad_accumulation))
+    total_steps = max(steps_per_epoch * epochs_max, 1)
+    optimizer = torch.optim.AdamW(model.parameter_groups(2e-5, 1e-4), weight_decay=0.01)
+    warmup = max(int(total_steps * 0.05), 1)
+
+    def lr_lambda(step):
+        if step < warmup:
+            return step / warmup
+        progress = (step - warmup) / max(total_steps - warmup, 1)
+        return max(0.05, 0.95 * (1 - progress) + 0.05)
+
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+    scaler = torch.amp.GradScaler("cuda", enabled=(device == "cuda"))
+    rng = _random.Random(seed ^ 0xA17A)
+    init_snapshot = {k: v.detach().clone() for k, v in model.state_dict().items()}
+
+    def _delta(encoder: bool) -> float:
+        total = 0.0
+        for n, p in model.state_dict().items():
+            if n.startswith("encoder.") == encoder:
+                total += (p.detach() - init_snapshot[n]).float().pow(2).sum().item()
+        return total ** 0.5
+
+    save_epochs = {15, 50, 100}
+    history, perfect_streak, global_step, stopped_early = [], 0, 0, False
+    t0 = _time.time()
+    with (arm / "curves.jsonl").open("w", encoding="utf-8") as curves:
+        for epoch in range(epochs_max):
+            order = list(range(len(usable)))
+            rng.shuffle(order)
+            optimizer.zero_grad(set_to_none=True)
+            loss_sum, rows_seen, grad_enc, grad_head, grad_steps = 0.0, 0, 0.0, 0.0, 0
+            for start in range(0, len(order), microbatch):
+                chunk = [usable[i] for i in order[start : start + microbatch]]
+                batch = collate_julia(tokenizer, chunk, qtypes, 1024, 256, device)
+                with torch.autocast("cuda", enabled=(device == "cuda")):
+                    logits = model(**{k: batch[k] for k in keys})
+                    loss = row_loss(logits, batch["targets"], chunk, None, None) / grad_accumulation
+                scaler.scale(loss).backward()
+                loss_sum += float(loss.item()) * grad_accumulation * len(chunk)
+                rows_seen += len(chunk)
+                if (start // microbatch + 1) % grad_accumulation == 0 or start + microbatch >= len(order):
+                    scaler.unscale_(optimizer)
+                    grad_enc += _e24_grad_norm([p.grad for n, p in model.named_parameters()
+                                                if n.startswith("encoder.") and p.grad is not None])
+                    grad_head += _e24_grad_norm([p.grad for n, p in model.named_parameters()
+                                                 if not n.startswith("encoder.") and p.grad is not None])
+                    grad_steps += 1
+                    torch.nn.utils.clip_grad_norm_(
+                        [p for g in optimizer.param_groups for p in g["params"]], 1.0)
+                    scaler.step(optimizer)
+                    scaler.update()
+                    scheduler.step()
+                    optimizer.zero_grad(set_to_none=True)
+                    global_step += 1
+                    if global_step % 25 == 0:
+                        print(f"[e24 s{seed}] epoch={epoch} step={global_step} "
+                              f"loss={float(loss.item()) * grad_accumulation:.4f}", flush=True)
+            tr = evaluate_julia_arch(model, tokenizer, usable, qtypes, device=device)
+            dv = evaluate_julia_arch(model, tokenizer, dev_cases, qtypes, device=device)
+            perfect_streak = perfect_streak + 1 if tr["accuracy"] == 1.0 else 0
+            entry = {"epoch": epoch, "step": global_step,
+                     "train_loss": loss_sum / max(rows_seen, 1),
+                     "train_acc": tr["accuracy"], "train_nll": tr["mean_nll"],
+                     "dev_acc": dv["accuracy"], "dev_nll": dv["mean_nll"],
+                     "grad_norm_encoder_mean": grad_enc / max(grad_steps, 1),
+                     "grad_norm_head_mean": grad_head / max(grad_steps, 1)}
+            if epoch % 5 == 0 or epoch == epochs_max - 1:
+                entry["weight_delta_encoder"] = _delta(True)
+                entry["weight_delta_head_group"] = _delta(False)
+            history.append(entry)
+            curves.write(_json.dumps(entry, default=str) + "\n")
+            log(f"e24 s{seed} epoch={epoch} train_acc={tr['accuracy']:.4f} "
+                f"dev_acc={dv['accuracy']:.4f} loss={entry['train_loss']:.4f}")
+            if epoch + 1 in save_epochs:
+                save_file(dict(model.state_dict()), str(arm / f"e{epoch + 1:03d}.safetensors"),
+                          metadata={"format": "pt"})
+            if perfect_streak >= 3:
+                stopped_early = True
+                break
+
+    save_file(dict(model.state_dict()), str(arm / "final.safetensors"), metadata={"format": "pt"})
+    final = history[-1]
+    fit = bool(final["train_acc"] is not None and final["train_acc"] >= E24_FIT_THRESHOLD)
+    result = {"epochs_run": len(history), "steps": global_step, "stopped_early": stopped_early,
+              "final_train_acc": final["train_acc"], "final_dev_acc": final["dev_acc"],
+              "final_train_nll": final["train_nll"], "final_dev_nll": final["dev_nll"],
+              "best_train_acc": max(h["train_acc"] for h in history),
+              "best_train_epoch": max(history, key=lambda h: h["train_acc"])["epoch"],
+              "fit": fit, "checkpoints": sorted(p.name for p in arm.glob("*.safetensors")),
+              "trained_s": round(_time.time() - t0, 1)}
+
+    # per-row predictions on train+dev for the FINAL checkpoint (always, also on failure)
+    predictions = []
+    for name, cases in (("train", usable), ("dev", dev_cases)):
+        ev = evaluate_julia_arch(model, tokenizer, cases, qtypes, device=device, collect_rows=True)
+        predictions.extend({"set": name, **r} for r in ev["rows"])
+    (arm / "predictions_final.jsonl").write_text(
+        "".join(_json.dumps(r, default=str) + "\n" for r in predictions), encoding="utf-8")
+
+    # conditional eval contrasts on the FINAL checkpoint (frozen rule: only on fit)
+    if fit and eval_cases:
+        result["evals"] = {}
+        for name, cases in eval_cases.items():
+            ev = evaluate_julia_arch(model, tokenizer, cases, qtypes, device=device,
+                                     collect_rows=True)
+            (arm / f"eval_{name}.jsonl").write_text(
+                "".join(_json.dumps(r, default=str) + "\n" for r in ev["rows"]), encoding="utf-8")
+            result["evals"][name] = {"n": ev["n"], "accuracy": ev["accuracy"],
+                                     "mean_nll": ev["mean_nll"]}
+    return result
+
+
+def stage_typed_e24_fit(bundle: Path, work: Path, config: str) -> None:
+    """E24: minimal numeric FITTING test (frozen protocol, 2026-10-10).
+
+    Can JuliaArch-small FIT 48 problems (one field, one operator, one threshold,
+    direct No/Yes question)? NOT a generalization benchmark. Gradient dominance
+    removed: the microset is the ONLY training data. Preflight minibatch
+    verification before seed 42; seed 43 only if 42 fits; the three eval
+    contrasts only on fit. Forgetting experiment prepared, NOT launched.
+    """
+    import json as _json
+
+    import torch
+
+    if not torch.cuda.is_available():
+        raise SystemExit("typed_e24_fit needs the GPU that was not assigned")
+    for i in range(torch.cuda.device_count()):
+        props = torch.cuda.get_device_properties(i)
+        log(f"e24 gpu[{i}]={props.name} vram={props.total_memory / 2**30:.1f} GiB")
+    e24 = _find_e24_root(bundle)
+    _, train_cases, _ = _e24_cases_and_qtypes(e24 / "train_fit_rows.jsonl")
+    _, dev_cases, _ = _e24_cases_and_qtypes(e24 / "dev_fit_rows.jsonl")
+    eval_specs = (("newvalues", "eval_newvalues_rows.jsonl"),
+                  ("newthreshold", "eval_newthreshold_rows.jsonl"),
+                  ("newfield", "eval_newfield_rows.jsonl"))
+    qtypes, eval_cases = {}, {}
+    for fname in ("train_fit_rows.jsonl", "dev_fit_rows.jsonl") + tuple(f for _, f in eval_specs):
+        for r in [_json.loads(l) for l in (e24 / fname).read_text(encoding="utf-8").splitlines() if l.strip()]:
+            if r["id"] in qtypes:
+                raise ValueError(f"duplicate id: {r['id']}")
+            qtypes[r["id"]] = r["question_type"]
+    for name, fname in eval_specs:
+        _, cases, _ = _e24_cases_and_qtypes(e24 / fname)
+        eval_cases[name] = cases
+    log(f"e24: train={len(train_cases)} dev={len(dev_cases)} "
+        f"evals={ {k: len(v) for k, v in eval_cases.items()} }")
+
+    from mokka_decisions.arch_julia import make_seeded_julia_arch
+    from safetensors.torch import save_file
+    from transformers import AutoTokenizer
+
+    tokenizer = AutoTokenizer.from_pretrained("jhu-clsp/mmBERT-small")
+
+    def run_seed(seed: int, preflight: bool, run_evals: bool, epochs_max: int = 150) -> dict:
+        arm = work / f"s{seed}"
+        arm.mkdir(parents=True, exist_ok=True)
+        model = make_seeded_julia_arch("jhu-clsp/mmBERT-small", seed=seed)
+        init_hash = _state_dict_sha256(model)
+        save_file(dict(model.state_dict()), str(arm / "initial.safetensors"), metadata={"format": "pt"})
+        model = model.to("cuda")
+        pre = None
+        if preflight:
+            pre = _e24_preflight(model, tokenizer, train_cases, qtypes,
+                                 arm / "initial.safetensors", init_hash, "cuda")
+            log(f"e24 preflight s{seed}: OK {pre}")
+        result = _e24_train_loop(model, tokenizer, train_cases, dev_cases, qtypes, arm,
+                                 seed=seed, device="cuda", epochs_max=epochs_max,
+                                 eval_cases=eval_cases if run_evals else None)
+        result["init_sha256"] = init_hash
+        result["preflight"] = pre
+        log(f"e24 s{seed}: fit={result['fit']} final_train={result['final_train_acc']:.4f} "
+            f"final_dev={result['final_dev_acc']:.4f} epochs={result['epochs_run']} "
+            f"in {result['trained_s']}s")
+        (work / "run_status.json").write_text(
+            _json.dumps({"stage": "typed_e24_fit", "seed": seed, "fit": result["fit"],
+                         "final_train_acc": result["final_train_acc"]}), encoding="utf-8")
+        return result
+
+    summary = {
+        "protocol": "docs/internal/E24_PROTOCOL_2026-10-10.md (frozen pre-launch)",
+        "objective": "FIT test: train accuracy >= 0.95 on the 48-problem microset within "
+                     "budget; NOT a generalization benchmark",
+        "recipe": {"architecture": "JuliaArchScorer(mmBERT-small), unchanged",
+                   "init": "upstream encoder + seeded fresh head (make_seeded_julia_arch)",
+                   "epochs_max": 150, "steps_max": 300, "microbatch": 4, "grad_accumulation": 8,
+                   "encoder_lr": 2e-5, "head_lr": 1e-4, "weight_decay": 0.01, "warmup_ratio": 0.05,
+                   "max_grad_norm": 1.0, "amp": True, "shuffle": "per epoch",
+                   "loss": "hard CE (deterministic noul rows)",
+                   "early_stop": "train accuracy == 1.0 at 3 consecutive epoch ends",
+                   "selection_for_evals": "FINAL checkpoint (no cherry-picking)"},
+        "data": {"train": len(train_cases), "dev": len(dev_cases),
+                 "evals": {k: len(v) for k, v in eval_cases.items()}},
+        "seeds": {}, "verdicts": {},
+        "forgetting_experiment": "PREPARED, NOT LAUNCHED (E25 candidate: resume the fitted "
+                                 "checkpoint with original tasks mixed in; measure microset "
+                                 "accuracy before/after)",
+    }
+    r42 = run_seed(42, preflight=True, run_evals=True)
+    summary["seeds"]["42"] = r42
+    summary["verdicts"]["fit_s42"] = r42["fit"]
+    if r42["fit"]:
+        r43 = run_seed(43, preflight=False, run_evals=True)
+        summary["seeds"]["43"] = r43
+        summary["verdicts"]["fit_s43"] = r43["fit"]
+        summary["verdicts"]["overall"] = "FIT_CONFIRMED" if r43["fit"] else "FIT_SINGLE"
+    else:
+        summary["verdicts"]["overall"] = "NO_FIT"
+    (work / "e24_summary.json").write_text(_json.dumps(summary, indent=2, default=str),
+                                           encoding="utf-8")
+    log(f"e24_fit: done — {summary['verdicts']}")
+
+
 STAGES = {"typed_arms": stage_typed_arms, "typed_a1": stage_typed_a1,
           "typed_ord": stage_typed_ord, "typed_small_ord": stage_typed_small_ord,
           "typed_e15": stage_typed_e15, "typed_e15_seeds": stage_typed_e15_seeds,
@@ -1395,6 +1735,7 @@ STAGES = {"typed_arms": stage_typed_arms, "typed_a1": stage_typed_a1,
           "typed_e19_rulevar": stage_typed_e19_rulevar,
           "typed_e20_contrast": stage_typed_e20_contrast,
           "typed_e23_numeric": stage_typed_e23_numeric,
+          "typed_e24_fit": stage_typed_e24_fit,
           # H2 (controlled, one variable): the dev curves were not saturated at
           # 4/8 epochs; extend epochs only — data/init/loss/seeds unchanged.
           "typed_ord2": lambda b, w, c: stage_typed_ord(b, w, c, epochs=6, out="base_ord6"),
