@@ -62,6 +62,8 @@ def main() -> int:
     parser.add_argument("--e26-dir", default=None, help="include e26-order data dir as e26-order/")
     parser.add_argument("--e27-dir", default=None, help="include e27-grid data dir as e27-grid/")
     parser.add_argument("--e28-dir", default=None, help="include e28-ext data dir as e28-ext/")
+    parser.add_argument("--e29-mix-dir", default=None, help="include e29-mix manifest dir as e29-mix/")
+    parser.add_argument("--e29-ckpt", default=None, help="include the E28 s43 finalist as e29-mix/e29-ckpts/e28_s43_final.safetensors")
     parser.add_argument("--e26-ckpt-dir", default=None, help="include E26 finalist checkpoints as e26-ckpts/ (s42/s43 treat finals)")
     args = parser.parse_args()
 
@@ -146,6 +148,21 @@ def main() -> int:
             if not (ed / "manifest.json").exists():
                 raise SystemExit(f"no e28 manifest under {ed}")
             shutil.copytree(ed, bundle / "e28-ext")
+        if args.e29_mix_dir:
+            ed = Path(args.e29_mix_dir)
+            if not (ed / "manifest.json").exists():
+                raise SystemExit(f"no e29-mix manifest under {ed}")
+            shutil.copytree(ed, bundle / "e29-mix")
+        if args.e29_ckpt:
+            import hashlib as _hl
+            src = Path(args.e29_ckpt)
+            dst = bundle / "e29-mix" / "e29-ckpts"
+            dst.mkdir(parents=True, exist_ok=True)
+            got = _hl.sha256(src.read_bytes()).hexdigest()
+            want = "75ea9eed7aac43a1ac1dc7fdeca40329af3335696861db3aae92aec844614829"
+            if got != want:
+                raise SystemExit(f"e29 candidate checkpoint hash mismatch: {got}")
+            shutil.copy2(src, dst / "e28_s43_final.safetensors")
         if args.e26_ckpt_dir:
             import hashlib as _hl
             import json as _js
