@@ -1752,7 +1752,7 @@ def _e25_hardware_report() -> dict:
 
 def _e25_train_loop(model, tokenizer, train_cases, dev_cases, qtypes, arm: Path, *, seed,
                     device="cuda", epochs_max=300, microbatch=4, grad_accumulation=8,
-                    eval_cases=None, early_stop=True):
+                    eval_cases=None, early_stop=True, dev_patience=None):
     """E25 loop: EXACT E24 recipe with the instrumentation the E24 review demands.
 
     Differences vs _e24_train_loop (frozen in the E25 protocol):
@@ -1805,6 +1805,7 @@ def _e25_train_loop(model, tokenizer, train_cases, dev_cases, qtypes, arm: Path,
     history = []
     attempted = effective = skipped = 0
     perfect_streak, stopped_early = 0, False
+    best_dev, dev_stale = -1.0, 0
     t0 = _time.time()
     with (arm / "curves.jsonl").open("w", encoding="utf-8") as curves:
         for epoch in range(epochs_max):
@@ -1854,6 +1855,11 @@ def _e25_train_loop(model, tokenizer, train_cases, dev_cases, qtypes, arm: Path,
             tr = evaluate_julia_arch(model, tokenizer, usable, qtypes, device=device)
             dv = evaluate_julia_arch(model, tokenizer, dev_cases, qtypes, device=device)
             perfect_streak = perfect_streak + 1 if tr["accuracy"] == 1.0 else 0
+            if dev_patience is not None:
+                if dv["accuracy"] > best_dev + 1e-12:
+                    best_dev, dev_stale = dv["accuracy"], 0
+                else:
+                    dev_stale += 1
             entry = {"epoch": epoch, "attempted_steps": attempted, "effective_steps": effective,
                      "skipped_steps": skipped, "grad_nonfinite_epochs": nonfinite_epoch,
                      "amp_scale_epoch_start": scale_at_epoch_start,
@@ -1877,6 +1883,9 @@ def _e25_train_loop(model, tokenizer, train_cases, dev_cases, qtypes, arm: Path,
             if early_stop and perfect_streak >= 3:
                 stopped_early = True
                 break
+            if dev_patience is not None and dev_stale >= dev_patience:
+                stopped_early = True
+                break
 
     save_file(dict(model.state_dict()), str(arm / "final.safetensors"), metadata={"format": "pt"})
     final = history[-1]
@@ -1888,6 +1897,8 @@ def _e25_train_loop(model, tokenizer, train_cases, dev_cases, qtypes, arm: Path,
               "final_train_nll": final["train_nll"], "final_dev_nll": final["dev_nll"],
               "best_train_acc": max(h["train_acc"] for h in history),
               "best_train_epoch": max(history, key=lambda h: h["train_acc"])["epoch"],
+              "best_dev_acc": (max(h["dev_acc"] for h in history) if history else None),
+              "best_dev_epoch": (max(history, key=lambda h: h["dev_acc"])["epoch"] if history else None),
               "nonfinite_grad_epochs_total": sum(h["grad_nonfinite_epochs"] for h in history),
               "fit": fit, "checkpoints": sorted(p.name for p in arm.glob("*.safetensors")),
               "trained_s": round(_time.time() - t0, 1)}
@@ -2352,6 +2363,109 @@ def stage_typed_e26c_seeds(bundle: Path, work: Path, config: str) -> None:
 
 
 
+def _find_e27_root(bundle: Path) -> Path:
+    for marker in bundle.rglob("e27-grid/manifest.json"):
+        return marker.parent
+    raise SystemExit("e27-grid dataset not found in bundle (e27-grid/manifest.json)")
+
+
+def stage_typed_e27_grid(bundle: Path, work: Path, config: str) -> None:
+    """E27: dense comparison grid (frozen protocol docs/internal/E27_PROTOCOL_2026-10-10.md).
+
+    TRAIN = the 92 exact E26 treat-train values against 8 thresholds each
+    (offsets -25/-7/-1/0/+1/+7/+15/+25, frozen substitutions): 4 Yes / 4 No per
+    value with identical value -> any question-ignoring rule is EXACTLY 0.500 on
+    train. Loop change (declared): NO perfect-train early stop; dev-patience 10
+    (stop when dev_acc has not improved for 10 epochs; finalist = FINAL
+    checkpoint, no dev selection). Evals: historical dev/testC/testD/mono from
+    e26-order (descriptive, comparable) + FRESH two-decimal testE (real OOD).
+    Seeds 42/43 fresh, both run regardless of fit (dev-stopping declared).
+    """
+    import json as _json
+
+    import torch
+
+    if not torch.cuda.is_available():
+        raise SystemExit("typed_e27_grid needs the GPU that was not assigned")
+    hardware = _e25_hardware_report()
+    (work / "hardware.json").write_text(_json.dumps(hardware, indent=2), encoding="utf-8")
+    log(f"e27 hardware: {hardware}")
+    e27 = _find_e27_root(bundle)
+    e26 = _find_e26_root(bundle)
+    _, train_cases, _ = _e24_cases_and_qtypes(e27 / "train_rows.jsonl")
+    _, dev_cases, _ = _e24_cases_and_qtypes(e26 / "dev_rows.jsonl")
+    eval_specs = (("known", e26, "test_c_rows.jsonl"), ("new", e26, "test_d_rows.jsonl"),
+                  ("mono", e26, "mono_rows.jsonl"), ("e", e27, "test_e_rows.jsonl"))
+    qtypes, eval_cases, seen = {}, {}, set()
+    for root, fname in [(e26, "dev_rows.jsonl")] + [(r, f) for _, r, f in eval_specs]             + [(e27, "train_rows.jsonl")]:
+        for r in [_json.loads(l) for l in (root / fname).read_text(encoding="utf-8").splitlines() if l.strip()]:
+            if r["id"] in seen:
+                raise ValueError(f"duplicate id: {r['id']}")
+            seen.add(r["id"])
+            qtypes[r["id"]] = r["question_type"]
+    for name, root, fname in eval_specs:
+        _, cases, _ = _e24_cases_and_qtypes(root / fname)
+        eval_cases[name] = cases
+    log(f"e27: train={len(train_cases)} dev={len(dev_cases)} "
+        f"evals={ {k: len(v) for k, v in eval_cases.items()} }")
+
+    from mokka_decisions.arch_julia import make_seeded_julia_arch
+    from safetensors.torch import save_file
+    from transformers import AutoTokenizer
+
+    tokenizer = AutoTokenizer.from_pretrained("jhu-clsp/mmBERT-small")
+
+    def run_seed(seed: int, preflight: bool) -> dict:
+        arm = work / f"s{seed}"
+        arm.mkdir(parents=True, exist_ok=True)
+        model = make_seeded_julia_arch("jhu-clsp/mmBERT-small", seed=seed)
+        init_hash = _state_dict_sha256(model)
+        save_file(dict(model.state_dict()), str(arm / "initial.safetensors"),
+                  metadata={"format": "pt"})
+        model = model.to("cuda")
+        pre = None
+        if preflight:
+            pre = _e24_preflight(model, tokenizer, train_cases, qtypes,
+                                 arm / "initial.safetensors", init_hash, "cuda")
+            log(f"e27 preflight s{seed}: OK")
+        result = _e25_train_loop(model, tokenizer, train_cases, dev_cases, qtypes, arm,
+                                 seed=seed, device="cuda", epochs_max=300,
+                                 eval_cases=eval_cases, early_stop=False, dev_patience=10)
+        result["init_sha256"] = init_hash
+        result["preflight"] = pre
+        log(f"e27 s{seed}: fit={result['fit']} final_train={result['final_train_acc']:.4f} "
+            f"final_dev={result['final_dev_acc']:.4f} best_dev={result['best_dev_acc']:.4f}@{result['best_dev_epoch']} "
+            f"epochs={result['epochs_run']} eff={result['effective_steps']}/{result['attempted_steps']} "
+            f"in {result['trained_s']}s")
+        (work / "run_status.json").write_text(
+            _json.dumps({"stage": "typed_e27_grid", "seed": seed, "fit": result["fit"],
+                         "final_dev_acc": result["final_dev_acc"]}), encoding="utf-8")
+        return result
+
+    summary = {
+        "protocol": "docs/internal/E27_PROTOCOL_2026-10-10.md (frozen pre-launch)",
+        "objective": ("dense comparison grid: both axes covered per value; "
+                      "question-ignoring rules exactly 0.500 on train by construction; "
+                      "dev-patience 10 replaces memorization stop; fresh 2-decimal testE "
+                      "is the real OOD measure; historical evals descriptive"),
+        "recipe": {"train_loop": "E25 loop unchanged except early_stop=False + dev_patience=10",
+                   "epochs_max": 300, "microbatch": 4, "grad_accumulation": 8,
+                   "selection": "finalist = FINAL checkpoint (no dev selection)"},
+        "data": {"train": len(train_cases), "dev": len(dev_cases),
+                 "evals": {k: len(v) for k, v in eval_cases.items()}},
+        "hardware": hardware,
+        "results": {},
+        "forgetting_experiment": "NOT launched",
+    }
+    for seed in (42, 43):
+        summary["results"][f"s{seed}"] = run_seed(seed, preflight=(seed == 42))
+    (work / "e27_summary.json").write_text(_json.dumps(summary, indent=2, default=str),
+                                           encoding="utf-8")
+    log("e27_grid: done")
+
+
+
+
 STAGES = {"typed_arms": stage_typed_arms, "typed_a1": stage_typed_a1,
           "typed_ord": stage_typed_ord, "typed_small_ord": stage_typed_small_ord,
           "typed_e15": stage_typed_e15, "typed_e15_seeds": stage_typed_e15_seeds,
@@ -2366,6 +2480,7 @@ STAGES = {"typed_arms": stage_typed_arms, "typed_a1": stage_typed_a1,
           "typed_e26_order": stage_typed_e26_order,
           "typed_e26b_diag": stage_typed_e26b_diag,
           "typed_e26c_seeds": stage_typed_e26c_seeds,
+          "typed_e27_grid": stage_typed_e27_grid,
           # H2 (controlled, one variable): the dev curves were not saturated at
           # 4/8 epochs; extend epochs only — data/init/loss/seeds unchanged.
           "typed_ord2": lambda b, w, c: stage_typed_ord(b, w, c, epochs=6, out="base_ord6"),

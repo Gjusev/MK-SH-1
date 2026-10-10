@@ -60,6 +60,7 @@ def main() -> int:
     parser.add_argument("--e24-dir", default=None, help="include e24-fit data dir as e24-fit/")
     parser.add_argument("--e25-dir", default=None, help="include e25-thrvar data dir as e25-thrvar/")
     parser.add_argument("--e26-dir", default=None, help="include e26-order data dir as e26-order/")
+    parser.add_argument("--e27-dir", default=None, help="include e27-grid data dir as e27-grid/")
     parser.add_argument("--e26-ckpt-dir", default=None, help="include E26 finalist checkpoints as e26-ckpts/ (s42/s43 treat finals)")
     args = parser.parse_args()
 
@@ -134,6 +135,11 @@ def main() -> int:
             if not (ed / "manifest.json").exists():
                 raise SystemExit(f"no e26 manifest under {ed}")
             shutil.copytree(ed, bundle / "e26-order")
+        if args.e27_dir:
+            ed = Path(args.e27_dir)
+            if not (ed / "manifest.json").exists():
+                raise SystemExit(f"no e27 manifest under {ed}")
+            shutil.copytree(ed, bundle / "e27-grid")
         if args.e26_ckpt_dir:
             import hashlib as _hl
             import json as _js
