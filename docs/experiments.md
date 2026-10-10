@@ -3,6 +3,15 @@
 One row per executed experiment. Artifacts under `runs/` (gitignored; hashes
 in `runs/**/run_report.json` and dataset manifests). Nothing here is projected.
 
+## E29 — Estudio de olvido / integración (kernel mokka-typed-e29 v2) — COMPLETADO: SIN catástrofe; el replay protege lo fresco; la tarea se recupera
+
+- Candidata E28-s43 (hash verificado) reanudada con tareas originales, brazos MIX (944 originales + 944 replay E28) vs ORIG (solo originales), 4 fases × 5 épocas, semilla 43. v1 falló por carrera dataset-kernel (la versión nueva del bundle se materializó 4 min después del arranque; el kernel montó la anterior sin e29-mix y la guarda de hash abortó — arreglado con verificación de creationDate antes de re-push; lección registrada).
+- **Línea base (candidata intacta): testC 1,000 · testD 0,926 · mono 0,967 · testE 0,911 · TAREA 0,157** (≈azar multi-clase: especialización total, el olvido es bidireccional).
+- **MIX@20 (con replay): testC 0,958 · testD 0,926 (intacto) · mono 0,967 (intacto) · E-interp 0,8966 (7/8 puros) · E-extrap 0,804 · VE2 8/10 · TAREA 0,713.** Modelo INTEGRADO: ambas capacidades con coste OOD leve.
+- **ORIG@20 (sin replay): testC 0,9375 — F2 NO dispara: no hay olvido catastrófico del núcleo**; lo fresco sí decae (E-interp 0,810 · E-extrap 0,696 · **VE2 0/10 — la monotonía colapsa sin replay**) · TAREA 0,723.
+- **Criterios formales: F1 FALSO por UNA fila (E-interp MIX 0,8966 vs 0,90 — la región del casi-éxito otra vez); F2 FALSO (la buena noticia); lectura (iii) formal con el matiz declarado: el cuadro sustantivo es que el replay FUNCIONA.** La interferencia bidireccional queda confinada a las medidas OOD frescas, y el replay la reduce a la mitad. Nada se lanza después (protocolo).
+- Artefactos: `runs/kaggle-typed-e29/` (baseline + 2 brazos × 4 fases con curvas y evals por fase, initial = candidata), `runs/e29-analysis/`.
+
 ## E28b — Semillas 44/45 receta E28 (kernel mokka-typed-e28b v1) — COMPLETADO: W1 falla por un pelo; hueco en la dicotomía
 
 - **testC 1,000 EN AMBAS** (3/4 semillas del linaje con testC perfecto: s43/s44/s45 — E28-s42 quedó en 0,9375; la era del techo de 96 filas quedó atrás del todo). s44: interp(D) 0,947 · extrap(D) 0,813 · **E-interp 0,8966 con 8/8 puros (falla 0,90 por UNA fila)** · E-extrap 0,857 · VE2 7/10 · V5-hist 6/6 · sd_n 17/17. s45: **interp(D) 1,000** · extrap(D) 0,938 · E-interp 0,931 (8/8) · E-extrap 0,821 (falla 0,85 por 3 pp; puros 2/8) · VE2 9/10 · sd_n 17/17.
