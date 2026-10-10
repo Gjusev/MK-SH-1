@@ -1752,7 +1752,7 @@ def _e25_hardware_report() -> dict:
 
 def _e25_train_loop(model, tokenizer, train_cases, dev_cases, qtypes, arm: Path, *, seed,
                     device="cuda", epochs_max=300, microbatch=4, grad_accumulation=8,
-                    eval_cases=None):
+                    eval_cases=None, early_stop=True):
     """E25 loop: EXACT E24 recipe with the instrumentation the E24 review demands.
 
     Differences vs _e24_train_loop (frozen in the E25 protocol):
@@ -1874,7 +1874,7 @@ def _e25_train_loop(model, tokenizer, train_cases, dev_cases, qtypes, arm: Path,
             if epoch + 1 in save_epochs:
                 save_file(dict(model.state_dict()), str(arm / f"e{epoch + 1:03d}.safetensors"),
                           metadata={"format": "pt"})
-            if perfect_streak >= 3:
+            if early_stop and perfect_streak >= 3:
                 stopped_early = True
                 break
 
@@ -2134,6 +2134,142 @@ def stage_typed_e26_order(bundle: Path, work: Path, config: str) -> None:
     log(f"e26_order: done — {summary['verdicts']}")
 
 
+def _find_e26b_ckpts(bundle: Path) -> Path:
+    for marker in bundle.rglob("e26-ckpts/ckpt_manifest.json"):
+        return marker.parent
+    raise SystemExit("e26b checkpoints not found in bundle (e26-ckpts/ckpt_manifest.json)")
+
+
+_E26B_CKPT_SHA = {42: "0c10e71469299028beccb6f5d7424320e3f187e65af437374d218bd703ca5b22",
+                  43: "4dd3169be1ebdae22587eefcd1cee6e4db0e5d2e2d27339299863d3f1dea8715"}
+_E26B_EPOCHS_RUN = {42: 59, 43: 42}
+_E26B_DEV_AT_STOP = {42: 0.625, 43: 0.9166666666666666}
+
+
+def stage_typed_e26b_diag(bundle: Path, work: Path, config: str) -> None:
+    """E26b diagnostic (frozen protocol docs/internal/E26B_PROTOCOL_2026-10-10.md).
+
+    Two discriminators recommended by the E26 review, no new data:
+    A) CONTINUE the s42/s43 TREATMENT finalists from their final.safetensors with
+    early stopping DISABLED up to the original 300-epoch budget (does dev keep
+    rising past memorization? -> was the stopping rule the lever?);
+    B) FRESH seeds 44/45 with the exact E26 treat recipe (how much was seed
+    variance?). Tests C/D/mono are HISTORICAL (inspected in E26): descriptive
+    only, no OOD claims. Run order: s44 (preflight, standard conditions) ->
+    s42_cont -> s43_cont -> s45.
+    """
+    import hashlib as _hashlib
+    import json as _json
+
+    import torch
+
+    if not torch.cuda.is_available():
+        raise SystemExit("typed_e26b_diag needs the GPU that was not assigned")
+    hardware = _e25_hardware_report()
+    (work / "hardware.json").write_text(_json.dumps(hardware, indent=2), encoding="utf-8")
+    log(f"e26b hardware: {hardware}")
+    e26 = _find_e26_root(bundle)
+    ckpts = _find_e26b_ckpts(bundle)
+    for seed, sha in _E26B_CKPT_SHA.items():
+        f = ckpts / f"s{seed}_treat_final.safetensors"
+        got = _hashlib.sha256(f.read_bytes()).hexdigest()
+        if got != sha:
+            raise SystemExit(f"e26b: finalist s{seed} hash mismatch: {got}")
+    log("e26b: finalist hashes verified against frozen literals")
+    _, train_cases, _ = _e24_cases_and_qtypes(e26 / "train_treat_rows.jsonl")
+    _, dev_cases, _ = _e24_cases_and_qtypes(e26 / "dev_rows.jsonl")
+    eval_specs = (("known", "test_c_rows.jsonl"), ("new", "test_d_rows.jsonl"),
+                  ("mono", "mono_rows.jsonl"))
+    qtypes, eval_cases, seen = {}, {}, set()
+    for fname in ("train_treat_rows.jsonl", "dev_rows.jsonl") + tuple(f for _, f in eval_specs):
+        for r in [_json.loads(l) for l in (e26 / fname).read_text(encoding="utf-8").splitlines() if l.strip()]:
+            if r["id"] in seen:
+                raise ValueError(f"duplicate id: {r['id']}")
+            seen.add(r["id"])
+            qtypes[r["id"]] = r["question_type"]
+    for name, fname in eval_specs:
+        _, cases, _ = _e24_cases_and_qtypes(e26 / fname)
+        eval_cases[name] = cases
+    log(f"e26b: treat={len(train_cases)} dev={len(dev_cases)} "
+        f"evals={ {k: len(v) for k, v in eval_cases.items()} }")
+
+    from mokka_decisions.arch_julia import make_seeded_julia_arch
+    from safetensors.torch import load_file, save_file
+    from transformers import AutoTokenizer
+
+    tokenizer = AutoTokenizer.from_pretrained("jhu-clsp/mmBERT-small")
+
+    def run_arm(tag: str, seed: int, *, continue_from=None, epochs_max: int,
+                early_stop: bool, preflight: bool) -> dict:
+        arm_dir = work / tag
+        arm_dir.mkdir(parents=True, exist_ok=True)
+        model = make_seeded_julia_arch("jhu-clsp/mmBERT-small", seed=seed)
+        if continue_from is not None:
+            model.load_state_dict(load_file(str(continue_from), device="cpu"), strict=True)
+        init_hash = _state_dict_sha256(model)
+        save_file(dict(model.state_dict()), str(arm_dir / "initial.safetensors"),
+                  metadata={"format": "pt"})
+        model = model.to("cuda")
+        pre = None
+        if preflight:
+            pre = _e24_preflight(model, tokenizer, train_cases, qtypes,
+                                 arm_dir / "initial.safetensors", init_hash, "cuda")
+            log(f"e26b preflight {tag}: OK")
+        result = _e25_train_loop(model, tokenizer, train_cases, dev_cases, qtypes, arm_dir,
+                                 seed=seed, device="cuda", epochs_max=epochs_max,
+                                 eval_cases=eval_cases, early_stop=early_stop)
+        result["init_sha256"] = init_hash
+        result["preflight"] = pre
+        result["continued_from"] = str(continue_from) if continue_from else None
+        if continue_from is not None:
+            curves = [_json.loads(l) for l in
+                      (arm_dir / "curves.jsonl").read_text(encoding="utf-8").splitlines()]
+            best = max(curves, key=lambda c: c["dev_acc"] or 0.0)
+            result["d1"] = {"dev_at_e26_stop": _E26B_DEV_AT_STOP[seed],
+                            "dev_final": result["final_dev_acc"],
+                            "delta": round(result["final_dev_acc"] - _E26B_DEV_AT_STOP[seed], 4),
+                            "dev_best_during_continuation": best["dev_acc"],
+                            "dev_best_epoch_index": best["epoch"]}
+        log(f"e26b {tag}: fit={result['fit']} final_train={result['final_train_acc']:.4f} "
+            f"final_dev={result['final_dev_acc']:.4f} epochs={result['epochs_run']} "
+            f"eff={result['effective_steps']}/{result['attempted_steps']}"
+            + (f" d1_delta={result['d1']['delta']}" if continue_from else "")
+            + f" in {result['trained_s']}s")
+        (work / "run_status.json").write_text(
+            _json.dumps({"stage": "typed_e26b_diag", "arm": tag, "seed": seed,
+                         "fit": result["fit"], "final_dev_acc": result["final_dev_acc"]}),
+            encoding="utf-8")
+        return result
+
+    summary = {
+        "protocol": "docs/internal/E26B_PROTOCOL_2026-10-10.md (frozen pre-launch)",
+        "objective": ("stopping-rule and seed-variance diagnostic after the E26 review; "
+                      "tests C/D/mono are HISTORICAL (inspected in E26) - descriptive only"),
+        "arms": {"s44": "fresh seed, exact E26 treat recipe, early stop ON",
+                 "s42_cont": "continue s42_treat finalist, early stop OFF, 241 more epochs",
+                 "s43_cont": "continue s43_treat finalist, early stop OFF, 258 more epochs",
+                 "s45": "fresh seed, exact E26 treat recipe, early stop ON"},
+        "budget": {"per_arm_effective_steps_max": 900, "continuation_epochs": _E26B_EPOCHS_RUN},
+        "dev_at_e26_stop": _E26B_DEV_AT_STOP,
+        "hardware": hardware,
+        "results": {},
+        "forgetting_experiment": "NOT launched",
+    }
+    order = [("s44", 44, dict(epochs_max=300, early_stop=True, preflight=True)),
+             ("s42_cont", 42, dict(continue_from=ckpts / "s42_treat_final.safetensors",
+                                   epochs_max=300 - _E26B_EPOCHS_RUN[42],
+                                   early_stop=False, preflight=False)),
+             ("s43_cont", 43, dict(continue_from=ckpts / "s43_treat_final.safetensors",
+                                   epochs_max=300 - _E26B_EPOCHS_RUN[43],
+                                   early_stop=False, preflight=False)),
+             ("s45", 45, dict(epochs_max=300, early_stop=True, preflight=False))]
+    for tag, seed, kw in order:
+        summary["results"][tag] = run_arm(tag, seed, **kw)
+    (work / "e26b_summary.json").write_text(_json.dumps(summary, indent=2, default=str),
+                                            encoding="utf-8")
+    log("e26b_diag: done")
+
+
 STAGES = {"typed_arms": stage_typed_arms, "typed_a1": stage_typed_a1,
           "typed_ord": stage_typed_ord, "typed_small_ord": stage_typed_small_ord,
           "typed_e15": stage_typed_e15, "typed_e15_seeds": stage_typed_e15_seeds,
@@ -2146,6 +2282,7 @@ STAGES = {"typed_arms": stage_typed_arms, "typed_a1": stage_typed_a1,
           "typed_e24_fit": stage_typed_e24_fit,
           "typed_e25_thrvar": stage_typed_e25_thrvar,
           "typed_e26_order": stage_typed_e26_order,
+          "typed_e26b_diag": stage_typed_e26b_diag,
           # H2 (controlled, one variable): the dev curves were not saturated at
           # 4/8 epochs; extend epochs only — data/init/loss/seeds unchanged.
           "typed_ord2": lambda b, w, c: stage_typed_ord(b, w, c, epochs=6, out="base_ord6"),

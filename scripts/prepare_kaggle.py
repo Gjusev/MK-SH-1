@@ -60,6 +60,7 @@ def main() -> int:
     parser.add_argument("--e24-dir", default=None, help="include e24-fit data dir as e24-fit/")
     parser.add_argument("--e25-dir", default=None, help="include e25-thrvar data dir as e25-thrvar/")
     parser.add_argument("--e26-dir", default=None, help="include e26-order data dir as e26-order/")
+    parser.add_argument("--e26-ckpt-dir", default=None, help="include E26 finalist checkpoints as e26-ckpts/ (s42/s43 treat finals)")
     args = parser.parse_args()
 
     bundle = Path(args.bundle)
@@ -133,6 +134,21 @@ def main() -> int:
             if not (ed / "manifest.json").exists():
                 raise SystemExit(f"no e26 manifest under {ed}")
             shutil.copytree(ed, bundle / "e26-order")
+        if args.e26_ckpt_dir:
+            import hashlib as _hl
+            import json as _js
+            src = Path(args.e26_ckpt_dir)
+            dst = bundle / "e26-ckpts"
+            dst.mkdir(parents=True)
+            manifest = {}
+            for seed in (42, 43):
+                f = src / f"s{seed}_treat" / "final.safetensors"
+                if not f.exists():
+                    raise SystemExit(f"missing finalist checkpoint: {f}")
+                shutil.copy2(f, dst / f"s{seed}_treat_final.safetensors")
+                manifest[f"s{seed}_treat_final.safetensors"] = {
+                    "sha256": _hl.sha256(f.read_bytes()).hexdigest(), "bytes": f.stat().st_size}
+            (dst / "ckpt_manifest.json").write_text(_js.dumps(manifest, indent=2), encoding="utf-8")
         (bundle / "dataset-metadata.json").write_text(
             json.dumps(
                 {
