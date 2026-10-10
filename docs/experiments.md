@@ -297,3 +297,21 @@ in `runs/**/run_report.json` and dataset manifests). Nothing here is projected.
 - Los formatos probados no rescatan el rendimiento en estas sondas: accuracy por formato 0,477–0,557. Eso no demuestra invariancia o equivalencia estadística entre formatos; no se habían calculado los intervalos anunciados en el docstring. Para remuestreo pareado, mantener juntos ambos miembros de cada inversión y sus formatos (`pair` si existe, si no `group_id`): 76 unidades en vez de 88 miembros separados. Extracción numérica, vinculación campo-valor y comparación siguen abiertas; la redacción concreta de las plantillas tampoco queda descartada por evaluar solo cuatro formatos.
 - **Propuesta de entrenamiento preparada y NO lanzada** (`docs/internal/E22_TRAINING_PROPOSAL.md`): control (mezcla aleatoria) vs candidato (mismo multiconjunto ordenado por fases), inicialización/pasos/optimizador idénticos por semilla, evaluación atómica nueva sin fugas (umbrales/valores nuevos), criterios de éxito que superan el «>50 % / pares > 0» (Δ≥+15 pp vs control, pares ≥0,50, límites de regresión 2 pp) y declaración de qué NO probaría un fracaso.
 - **Revisión local:** corregidos baseline y etiquetas del informe, añadido análisis desde predicciones guardadas sin sobrescribirlas, y agrupación de pares declarada correctamente. Informe corregido: `runs/e22-review-2026-10-10/format_report_v2.json`; evidencia: `verification.json`. Pasan 11 pruebas pertinentes (6 existentes y 5 nuevas). El total histórico del agente era 87/87; no se repitió toda la suite. Sin entrenamiento ni GPU.
+
+## E23 — Aprendizaje numérico atómico + contraste del orden curricular (kernel mokka-typed-e23 v3) — COMPLETADO
+
+- Protocolo congelado antes de entrenar con DOS veredictos separados: **A (adquisición)** — ¿los datos nuevos enseñan capacidad numérica? — y **B (currículo)** — ¿ordenarlos por fases mejora frente a mezclarlos? Multiconjunto de 6.656 filas idéntico entre brazos (hash verificado); inicializaciones idénticas por semilla (3/3); pasos 624; 2 recetas × 3 semillas. Test sellado: 528 preguntas con 3 rasgos NUNCA vistos (torque_nm, salinity_ppt, altitude_m), 4 operadores, fronteras, 12 pares de inversión. Etiquetas 2.064/2.064 verificadas independientemente.
+- Ejecución: 2 incidentes menores corregidos (import order, doble conversión) → v3 COMPLETE con GPU 2×T4 verificada; ~52 min de pared.
+
+| test sellado (s42/s43/s44) | acc | pares ambos-correctos | por rasgo nuevo |
+|---|---|---|---|
+| e23_mix (barajado) | 0,504/0,500/0,510 | 0,00/0,00/0,00 | todos ≈ 0,500 |
+| e23_cur (fases) | 0,500/0,500/0,496 | 0,00/0,00/**0,17** | todos = 0,500 |
+| e20_ctrl_s43 (ref. anterior) | 0,502 | 0,00 | todos ≈ 0,500 |
+| Julia | 0,496 | 0,00 | todos ≈ 0,500 |
+
+- **Veredicto A (adquisición): NO ADQUIRIDO.** Ninguna diferencia frente al checkpoint anterior (+0,25 pp, muy lejos de +15 pp). Entrenar con 1.376 ejemplos atómicos numéricos balanceados con fronteras NO enseñó a evaluar comparaciones numéricas en rasgos nuevos — TODOS los modelos (6 nuevos + 2 anteriores + Julia) están exactamente en el azar (0,496-0,510).
+- **Veredicto B (currículo): INCONCLUSO (ligeramente negativo).** cur−mix por semilla: −0,4/0,0/−1,3 pp; media −0,6 pp; el curriculum también PERDIÓ en dev (mix 0,666-0,736 vs cur 0,586-0,623). Ordenar no ayudó y quizá dañó el entrenamiento.
+- Único dato positivo: e23_cur_s44 logró 0,17 en pares de inversión (único modelo con >0). s42_mix muestra leve variación por operador (at_least 0,58 vs below 0,42) sin traducirse en acierto global.
+- **Explicaciones alternativas abiertas** (sin atribuir a arquitectura): (1) los 4.950 originales dominan el gradiente y los 1.376 atómicos no bastan; (2) la serialización JSON no permite vincular el número al campo correcto; (3) el modelo mmBERT-small carece de la capacidad de comparación numérica a esta escala/receta; (4) 3 épocas insuficientes. Este resultado NEGATIVO no prueba ninguna de ellas por sí solo.
+- Artefactos: `runs/kaggle-typed-e23/` (6 ckpts + dev_rows 730/brazo + summary), `runs/e23-sealed-eval/` (9 percase + report). Scripts: gen/verify/eval/report + tests 92/92.
