@@ -493,7 +493,7 @@ def stage_baselines(bundle: Path, work: Path, config: str) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--stage", default="typed_e24_fit",
+        "--stage", default="typed_e25_thrvar",
         help="comma-separated stages: smoke,train,resume_test,eval,baselines",
     )
     parser.add_argument("--config", default="configs/train.yaml")  # bundle v1 carries pilot-budget data
@@ -2705,6 +2705,296 @@ def stage_typed_e24_fit(bundle: Path, work: Path, config: str) -> None:
     log(f"e24_fit: done — {summary['verdicts']}")
 
 
+def _find_e25_root(bundle: Path) -> Path:
+    for marker in bundle.rglob("e25-thrvar/manifest.json"):
+        return marker.parent
+    raise SystemExit("e25-thrvar dataset not found in bundle (e25-thrvar/manifest.json)")
+
+
+def _e25_hardware_report() -> dict:
+    import torch
+
+    report = {"torch": torch.__version__, "cuda_available": torch.cuda.is_available(),
+              "gpu_count": torch.cuda.device_count() if torch.cuda.is_available() else 0,
+              "gpus": []}
+    if report["cuda_available"]:
+        for i in range(torch.cuda.device_count()):
+            props = torch.cuda.get_device_properties(i)
+            report["gpus"].append({"index": i, "name": props.name,
+                                   "vram_gb": round(props.total_memory / 2**30, 2),
+                                   "capability": f"{props.major}.{props.minor}"})
+    import transformers
+
+    report["transformers"] = transformers.__version__
+    return report
+
+
+def _e25_train_loop(model, tokenizer, train_cases, dev_cases, qtypes, arm: Path, *, seed,
+                    device="cuda", epochs_max=300, microbatch=4, grad_accumulation=8,
+                    eval_cases=None):
+    """E25 loop: EXACT E24 recipe with the instrumentation the E24 review demands.
+
+    Differences vs _e24_train_loop (frozen in the E25 protocol):
+    - attempted vs effective vs skipped optimizer updates are counted separately;
+      a step whose grads are non-finite after unscale_ is counted as skipped
+      (scaler.step still runs, so the AMP scale shrinks as designed);
+    - the LR scheduler advances ONLY on effective updates;
+    - AMP scale is recorded per epoch and non-finite grad epochs are flagged
+      (norms stored as null, never inf);
+    - hardware telemetry is saved by the stage (hardware.json).
+    """
+    import json as _json
+    import math
+    import random as _random
+    import time as _time
+
+    import torch
+
+    from mokka_decisions.arch_julia import collate_julia, evaluate_julia_arch, row_loss
+    from safetensors.torch import save_file
+
+    keys = ("input_ids", "attention_mask", "marker_pos", "marker_mask", "qtype")
+    model = model.to(device)
+    model.train()
+    usable = [c for c in train_cases if c.target_option]
+    steps_per_epoch = math.ceil(len(usable) / (microbatch * grad_accumulation))
+    max_effective_steps = steps_per_epoch * epochs_max
+    optimizer = torch.optim.AdamW(model.parameter_groups(2e-5, 1e-4), weight_decay=0.01)
+    warmup = max(int(max_effective_steps * 0.05), 1)
+
+    def lr_lambda(step):
+        if step < warmup:
+            return step / warmup
+        progress = (step - warmup) / max(max_effective_steps - warmup, 1)
+        return max(0.05, 0.95 * (1 - progress) + 0.05)
+
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+    scaler = torch.amp.GradScaler("cuda", enabled=(device == "cuda"))
+    rng = _random.Random(seed ^ 0xA17A)
+    init_snapshot = {k: v.detach().clone() for k, v in model.state_dict().items()}
+
+    def _delta(encoder: bool) -> float:
+        total = 0.0
+        for n, p in model.state_dict().items():
+            if n.startswith("encoder.") == encoder:
+                total += (p.detach() - init_snapshot[n]).float().pow(2).sum().item()
+        return total ** 0.5
+
+    save_epochs = {25, 100, 200}
+    history = []
+    attempted = effective = skipped = 0
+    perfect_streak, stopped_early = 0, False
+    t0 = _time.time()
+    with (arm / "curves.jsonl").open("w", encoding="utf-8") as curves:
+        for epoch in range(epochs_max):
+            order = list(range(len(usable)))
+            rng.shuffle(order)
+            optimizer.zero_grad(set_to_none=True)
+            loss_sum, rows_seen = 0.0, 0
+            grad_enc, grad_head, grad_steps = 0.0, 0.0, 0
+            nonfinite_epoch = 0
+            scale_at_epoch_start = scaler.get_scale() if device == "cuda" else None
+            for start in range(0, len(order), microbatch):
+                chunk = [usable[i] for i in order[start : start + microbatch]]
+                batch = collate_julia(tokenizer, chunk, qtypes, 1024, 256, device)
+                with torch.autocast("cuda", enabled=(device == "cuda")):
+                    logits = model(**{k: batch[k] for k in keys})
+                    loss = row_loss(logits, batch["targets"], chunk, None, None) / grad_accumulation
+                scaler.scale(loss).backward()
+                loss_sum += float(loss.item()) * grad_accumulation * len(chunk)
+                rows_seen += len(chunk)
+                if (start // microbatch + 1) % grad_accumulation == 0 or start + microbatch >= len(order):
+                    attempted += 1
+                    scaler.unscale_(optimizer)
+                    finite = all(torch.isfinite(p.grad).all().item()
+                                 for g in optimizer.param_groups for p in g["params"]
+                                 if p.grad is not None)
+                    if finite:
+                        grad_enc += _e24_grad_norm([p.grad for n, p in model.named_parameters()
+                                                    if n.startswith("encoder.") and p.grad is not None])
+                        grad_head += _e24_grad_norm([p.grad for n, p in model.named_parameters()
+                                                     if not n.startswith("encoder.") and p.grad is not None])
+                        grad_steps += 1
+                        torch.nn.utils.clip_grad_norm_(
+                            [p for g in optimizer.param_groups for p in g["params"]], 1.0)
+                        effective += 1
+                    else:
+                        nonfinite_epoch += 1
+                        skipped += 1
+                    scaler.step(optimizer)  # applies only when grads are finite
+                    scaler.update()
+                    if finite:
+                        scheduler.step()  # advances ONLY on effective updates
+                    optimizer.zero_grad(set_to_none=True)
+                    if attempted % 50 == 0:
+                        print(f"[e25 s{seed}] epoch={epoch} attempted={attempted} "
+                              f"effective={effective} loss={float(loss.item()) * grad_accumulation:.4f}",
+                              flush=True)
+            tr = evaluate_julia_arch(model, tokenizer, usable, qtypes, device=device)
+            dv = evaluate_julia_arch(model, tokenizer, dev_cases, qtypes, device=device)
+            perfect_streak = perfect_streak + 1 if tr["accuracy"] == 1.0 else 0
+            entry = {"epoch": epoch, "attempted_steps": attempted, "effective_steps": effective,
+                     "skipped_steps": skipped, "grad_nonfinite_epochs": nonfinite_epoch,
+                     "amp_scale_epoch_start": scale_at_epoch_start,
+                     "amp_scale_epoch_end": scaler.get_scale() if device == "cuda" else None,
+                     "train_loss": loss_sum / max(rows_seen, 1),
+                     "train_acc": tr["accuracy"], "train_nll": tr["mean_nll"],
+                     "dev_acc": dv["accuracy"], "dev_nll": dv["mean_nll"],
+                     "grad_norm_encoder_mean": (grad_enc / grad_steps) if grad_steps else None,
+                     "grad_norm_head_mean": (grad_head / grad_steps) if grad_steps else None}
+            if epoch % 5 == 0 or epoch == epochs_max - 1:
+                entry["weight_delta_encoder"] = _delta(True)
+                entry["weight_delta_head_group"] = _delta(False)
+            history.append(entry)
+            curves.write(_json.dumps(entry, default=str) + "\n")
+            log(f"e25 s{seed} epoch={epoch} train_acc={tr['accuracy']:.4f} "
+                f"dev_acc={dv['accuracy']:.4f} eff={effective}/{attempted} "
+                f"skip={skipped} loss={entry['train_loss']:.4f}")
+            if epoch + 1 in save_epochs:
+                save_file(dict(model.state_dict()), str(arm / f"e{epoch + 1:03d}.safetensors"),
+                          metadata={"format": "pt"})
+            if perfect_streak >= 3:
+                stopped_early = True
+                break
+
+    save_file(dict(model.state_dict()), str(arm / "final.safetensors"), metadata={"format": "pt"})
+    final = history[-1]
+    fit = bool(final["train_acc"] is not None and final["train_acc"] >= 0.95)
+    result = {"epochs_run": len(history), "attempted_steps": attempted,
+              "effective_steps": effective, "skipped_steps": skipped,
+              "stopped_early": stopped_early,
+              "final_train_acc": final["train_acc"], "final_dev_acc": final["dev_acc"],
+              "final_train_nll": final["train_nll"], "final_dev_nll": final["dev_nll"],
+              "best_train_acc": max(h["train_acc"] for h in history),
+              "best_train_epoch": max(history, key=lambda h: h["train_acc"])["epoch"],
+              "nonfinite_grad_epochs_total": sum(h["grad_nonfinite_epochs"] for h in history),
+              "fit": fit, "checkpoints": sorted(p.name for p in arm.glob("*.safetensors")),
+              "trained_s": round(_time.time() - t0, 1)}
+
+    predictions = []
+    for name, cases in (("train", usable), ("dev", dev_cases)):
+        ev = evaluate_julia_arch(model, tokenizer, cases, qtypes, device=device, collect_rows=True)
+        predictions.extend({"set": name, **r} for r in ev["rows"])
+    (arm / "predictions_final.jsonl").write_text(
+        "".join(_json.dumps(r, default=str) + "\n" for r in predictions), encoding="utf-8")
+
+    # tests C/D: opened here — the finalist (final checkpoint) is already fixed
+    if eval_cases:
+        result["evals"] = {}
+        for name, cases in eval_cases.items():
+            ev = evaluate_julia_arch(model, tokenizer, cases, qtypes, device=device,
+                                     collect_rows=True)
+            (arm / f"eval_{name}.jsonl").write_text(
+                "".join(_json.dumps(r, default=str) + "\n" for r in ev["rows"]), encoding="utf-8")
+            result["evals"][name] = {"n": ev["n"], "accuracy": ev["accuracy"],
+                                     "mean_nll": ev["mean_nll"]}
+    return result
+
+
+def stage_typed_e25_thrvar(bundle: Path, work: Path, config: str) -> None:
+    """E25: threshold-VARIABLE comparison (frozen protocol, 2026-10-10).
+
+    Can the model learn to compare the state value against the threshold IN
+    THE QUESTION? Multiple train thresholds (40..90) with threshold-only
+    inversion pairs (identical state, only the question threshold changes);
+    held-out tests: new values at known thresholds (C) and never-used
+    thresholds (D: interp/extrap). Tests are opened once the finalist (final
+    checkpoint) is fixed. Forgetting study NOT launched here.
+    """
+    import json as _json
+    import time as _time
+
+    import torch
+
+    if not torch.cuda.is_available():
+        raise SystemExit("typed_e25_thrvar needs the GPU that was not assigned")
+    hardware = _e25_hardware_report()
+    (work / "hardware.json").write_text(_json.dumps(hardware, indent=2), encoding="utf-8")
+    log(f"e25 hardware: {hardware}")
+    e25 = _find_e25_root(bundle)
+    _, train_cases, _ = _e24_cases_and_qtypes(e25 / "train_thr_rows.jsonl")
+    _, dev_cases, _ = _e24_cases_and_qtypes(e25 / "dev_thr_rows.jsonl")
+    eval_specs = (("known", "test_known_thr_rows.jsonl"), ("new", "test_new_thr_rows.jsonl"))
+    qtypes, eval_cases = {}, {}
+    for fname in ("train_thr_rows.jsonl", "dev_thr_rows.jsonl") + tuple(f for _, f in eval_specs):
+        for r in [_json.loads(l) for l in (e25 / fname).read_text(encoding="utf-8").splitlines() if l.strip()]:
+            if r["id"] in qtypes:
+                raise ValueError(f"duplicate id: {r['id']}")
+            qtypes[r["id"]] = r["question_type"]
+    for name, fname in eval_specs:
+        _, cases, _ = _e24_cases_and_qtypes(e25 / fname)
+        eval_cases[name] = cases
+    log(f"e25: train={len(train_cases)} dev={len(dev_cases)} "
+        f"evals={ {k: len(v) for k, v in eval_cases.items()} }")
+
+    from mokka_decisions.arch_julia import make_seeded_julia_arch
+    from safetensors.torch import save_file
+    from transformers import AutoTokenizer
+
+    tokenizer = AutoTokenizer.from_pretrained("jhu-clsp/mmBERT-small")
+
+    def run_seed(seed: int, preflight: bool, epochs_max: int = 300) -> dict:
+        arm = work / f"s{seed}"
+        arm.mkdir(parents=True, exist_ok=True)
+        model = make_seeded_julia_arch("jhu-clsp/mmBERT-small", seed=seed)
+        init_hash = _state_dict_sha256(model)
+        save_file(dict(model.state_dict()), str(arm / "initial.safetensors"), metadata={"format": "pt"})
+        model = model.to("cuda")
+        pre = None
+        if preflight:
+            pre = _e24_preflight(model, tokenizer, train_cases, qtypes,
+                                 arm / "initial.safetensors", init_hash, "cuda")
+            log(f"e25 preflight s{seed}: OK")
+        result = _e25_train_loop(model, tokenizer, train_cases, dev_cases, qtypes, arm,
+                                 seed=seed, device="cuda", epochs_max=epochs_max,
+                                 eval_cases=eval_cases)
+        result["init_sha256"] = init_hash
+        result["preflight"] = pre
+        log(f"e25 s{seed}: fit={result['fit']} final_train={result['final_train_acc']:.4f} "
+            f"final_dev={result['final_dev_acc']:.4f} epochs={result['epochs_run']} "
+            f"eff={result['effective_steps']}/{result['attempted_steps']} "
+            f"in {result['trained_s']}s")
+        (work / "run_status.json").write_text(
+            _json.dumps({"stage": "typed_e25_thrvar", "seed": seed, "fit": result["fit"],
+                         "final_train_acc": result["final_train_acc"]}), encoding="utf-8")
+        return result
+
+    summary = {
+        "protocol": "docs/internal/E25_PROTOCOL_2026-10-10.md (frozen pre-launch)",
+        "objective": "learn to compare value vs the threshold IN THE QUESTION (two variable "
+                     "operands); NOT a generalization benchmark, NOT vs Julia",
+        "recipe": {"architecture": "JuliaArchScorer(mmBERT-small), unchanged",
+                   "init": "upstream encoder + seeded fresh head",
+                   "epochs_max": 300, "max_effective_steps": 600, "microbatch": 4,
+                   "grad_accumulation": 8, "encoder_lr": 2e-5, "head_lr": 1e-4,
+                   "weight_decay": 0.01, "warmup_ratio": 0.05, "max_grad_norm": 1.0,
+                   "amp": True, "shuffle": "per epoch", "loss": "hard CE",
+                   "early_stop": "train accuracy == 1.0 at 3 consecutive epoch ends",
+                   "scheduler_advances": "ONLY on effective updates (non-finite-grad steps "
+                                         "are skipped and do not consume the schedule)",
+                   "fit_criterion": "train accuracy >= 0.95 at the final epoch",
+                   "selection": "finalist = FINAL checkpoint; dev tracked, never selected on"},
+        "data": {"train": len(train_cases), "dev": len(dev_cases),
+                 "evals": {k: len(v) for k, v in eval_cases.items()}},
+        "hardware": hardware,
+        "seeds": {}, "verdicts": {},
+        "forgetting_experiment": "NOT launched in E25 (next after threshold dependence)",
+    }
+    r42 = run_seed(42, preflight=True)
+    summary["seeds"]["42"] = r42
+    summary["verdicts"]["fit_s42"] = r42["fit"]
+    if r42["fit"]:
+        r43 = run_seed(43, preflight=False)
+        summary["seeds"]["43"] = r43
+        summary["verdicts"]["fit_s43"] = r43["fit"]
+        summary["verdicts"]["overall_fit"] = "FIT_CONFIRMED" if r43["fit"] else "FIT_SINGLE"
+    else:
+        summary["verdicts"]["overall_fit"] = "NO_FIT"
+    (work / "e25_summary.json").write_text(_json.dumps(summary, indent=2, default=str),
+                                           encoding="utf-8")
+    log(f"e25_thrvar: done — {summary['verdicts']}")
+
+
 TYPED_STAGES = {"typed_arms": stage_typed_arms, "typed_a1": stage_typed_a1,
           "typed_ord": stage_typed_ord, "typed_small_ord": stage_typed_small_ord,
           "typed_e15": stage_typed_e15, "typed_e15_seeds": stage_typed_e15_seeds,
@@ -2715,6 +3005,7 @@ TYPED_STAGES = {"typed_arms": stage_typed_arms, "typed_a1": stage_typed_a1,
           "typed_e20_contrast": stage_typed_e20_contrast,
           "typed_e23_numeric": stage_typed_e23_numeric,
           "typed_e24_fit": stage_typed_e24_fit,
+          "typed_e25_thrvar": stage_typed_e25_thrvar,
           # H2 (controlled, one variable): the dev curves were not saturated at
           # 4/8 epochs; extend epochs only — data/init/loss/seeds unchanged.
           "typed_ord2": lambda b, w, c: stage_typed_ord(b, w, c, epochs=6, out="base_ord6"),
