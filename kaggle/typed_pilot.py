@@ -2270,6 +2270,88 @@ def stage_typed_e26b_diag(bundle: Path, work: Path, config: str) -> None:
     log("e26b_diag: done")
 
 
+def stage_typed_e26c_seeds(bundle: Path, work: Path, config: str) -> None:
+    """E26c: fresh treat seeds 46/47, exact E26 recipe (E26b review's replication arm).
+
+    Closes the near-miss gap the frozen E26b D3 rule left open (s44 = 43/48 with
+    4/4 pairs): two more seeds decide whether the sub-0.90 testC ceiling is
+    variance or signal. Tests C/D/mono HISTORICAL: descriptive only.
+    """
+    import json as _json
+
+    import torch
+
+    if not torch.cuda.is_available():
+        raise SystemExit("typed_e26c_seeds needs the GPU that was not assigned")
+    hardware = _e25_hardware_report()
+    (work / "hardware.json").write_text(_json.dumps(hardware, indent=2), encoding="utf-8")
+    log(f"e26c hardware: {hardware}")
+    e26 = _find_e26_root(bundle)
+    _, train_cases, _ = _e24_cases_and_qtypes(e26 / "train_treat_rows.jsonl")
+    _, dev_cases, _ = _e24_cases_and_qtypes(e26 / "dev_rows.jsonl")
+    eval_specs = (("known", "test_c_rows.jsonl"), ("new", "test_d_rows.jsonl"),
+                  ("mono", "mono_rows.jsonl"))
+    qtypes, eval_cases, seen = {}, {}, set()
+    for fname in ("train_treat_rows.jsonl", "dev_rows.jsonl") + tuple(f for _, f in eval_specs):
+        for r in [_json.loads(l) for l in (e26 / fname).read_text(encoding="utf-8").splitlines() if l.strip()]:
+            if r["id"] in seen:
+                raise ValueError(f"duplicate id: {r['id']}")
+            seen.add(r["id"])
+            qtypes[r["id"]] = r["question_type"]
+    for name, fname in eval_specs:
+        _, cases, _ = _e24_cases_and_qtypes(e26 / fname)
+        eval_cases[name] = cases
+    log(f"e26c: treat={len(train_cases)} dev={len(dev_cases)} "
+        f"evals={ {k: len(v) for k, v in eval_cases.items()} }")
+
+    from mokka_decisions.arch_julia import make_seeded_julia_arch
+    from safetensors.torch import save_file
+    from transformers import AutoTokenizer
+
+    tokenizer = AutoTokenizer.from_pretrained("jhu-clsp/mmBERT-small")
+
+    def run_seed(seed: int, preflight: bool) -> dict:
+        arm = work / f"s{seed}"
+        arm.mkdir(parents=True, exist_ok=True)
+        model = make_seeded_julia_arch("jhu-clsp/mmBERT-small", seed=seed)
+        init_hash = _state_dict_sha256(model)
+        save_file(dict(model.state_dict()), str(arm / "initial.safetensors"),
+                  metadata={"format": "pt"})
+        model = model.to("cuda")
+        pre = None
+        if preflight:
+            pre = _e24_preflight(model, tokenizer, train_cases, qtypes,
+                                 arm / "initial.safetensors", init_hash, "cuda")
+            log(f"e26c preflight s{seed}: OK")
+        result = _e25_train_loop(model, tokenizer, train_cases, dev_cases, qtypes, arm,
+                                 seed=seed, device="cuda", epochs_max=300,
+                                 eval_cases=eval_cases)
+        result["init_sha256"] = init_hash
+        result["preflight"] = pre
+        log(f"e26c s{seed}: fit={result['fit']} final_train={result['final_train_acc']:.4f} "
+            f"final_dev={result['final_dev_acc']:.4f} epochs={result['epochs_run']} "
+            f"eff={result['effective_steps']}/{result['attempted_steps']} in {result['trained_s']}s")
+        (work / "run_status.json").write_text(
+            _json.dumps({"stage": "typed_e26c_seeds", "seed": seed, "fit": result["fit"],
+                         "final_dev_acc": result["final_dev_acc"]}), encoding="utf-8")
+        return result
+
+    summary = {
+        "protocol": "docs/internal/E26C_PROTOCOL_2026-10-10.md (frozen pre-launch)",
+        "objective": ("two more treat seeds with the exact E26 recipe; closes the "
+                      "near-miss gap of the E26b D3 rule (tests HISTORICAL, descriptive)"),
+        "hardware": hardware, "results": {},
+    }
+    for seed in (46, 47):
+        summary["results"][f"s{seed}"] = run_seed(seed, preflight=(seed == 46))
+    (work / "e26c_summary.json").write_text(_json.dumps(summary, indent=2, default=str),
+                                            encoding="utf-8")
+    log("e26c_seeds: done")
+
+
+
+
+
 STAGES = {"typed_arms": stage_typed_arms, "typed_a1": stage_typed_a1,
           "typed_ord": stage_typed_ord, "typed_small_ord": stage_typed_small_ord,
           "typed_e15": stage_typed_e15, "typed_e15_seeds": stage_typed_e15_seeds,
@@ -2283,6 +2365,7 @@ STAGES = {"typed_arms": stage_typed_arms, "typed_a1": stage_typed_a1,
           "typed_e25_thrvar": stage_typed_e25_thrvar,
           "typed_e26_order": stage_typed_e26_order,
           "typed_e26b_diag": stage_typed_e26b_diag,
+          "typed_e26c_seeds": stage_typed_e26c_seeds,
           # H2 (controlled, one variable): the dev curves were not saturated at
           # 4/8 epochs; extend epochs only — data/init/loss/seeds unchanged.
           "typed_ord2": lambda b, w, c: stage_typed_ord(b, w, c, epochs=6, out="base_ord6"),
