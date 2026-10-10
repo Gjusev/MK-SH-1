@@ -258,7 +258,8 @@ def train_julia_arch(model, tokenizer, train_cases, dev_cases, qtypes, *, output
                      weight_decay=0.01, warmup_ratio=0.05, max_grad_norm=1.0, seed=42,
                      device="cuda", soft_targets=None, ordinal_case_ids=None,
                      max_length=1024, head_length=256,
-                     reference_probabilities: dict | None = None) -> dict:
+                     reference_probabilities: dict | None = None,
+                     shuffle: bool = True) -> dict:
     """Same recipe/checkpoint pattern as the A0/A1 trainers (comparable runs)."""
     import json
     from pathlib import Path
@@ -293,7 +294,8 @@ def train_julia_arch(model, tokenizer, train_cases, dev_cases, qtypes, *, output
     global_step = 0
     for epoch in range(epochs):
         order = list(range(len(usable)))
-        rng.shuffle(order)
+        if shuffle:
+            rng.shuffle(order)
         optimizer.zero_grad(set_to_none=True)
         for mb_idx, start in enumerate(range(0, len(order), microbatch)):
             chunk = [usable[i] for i in order[start : start + microbatch]]

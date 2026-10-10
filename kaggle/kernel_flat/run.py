@@ -493,7 +493,7 @@ def stage_baselines(bundle: Path, work: Path, config: str) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--stage", default="typed_e20_contrast",
+        "--stage", default="typed_e23_numeric",
         help="comma-separated stages: smoke,train,resume_test,eval,baselines",
     )
     parser.add_argument("--config", default="configs/train.yaml")  # bundle v1 carries pilot-budget data
@@ -2189,6 +2189,182 @@ def stage_typed_e20_contrast(bundle: Path, work: Path, config: str) -> None:
     (work / "e20_summary.json").write_text(_json.dumps(summary, indent=2), encoding="utf-8")
     log("e20_contrast: done")
 
+
+
+def _find_e23_root(bundle: Path) -> Path:
+    for marker in bundle.rglob("e23-numeric/manifest.json"):
+        return marker.parent
+    raise SystemExit("e23-numeric dataset not found in bundle (e23-numeric/manifest.json)")
+
+
+def stage_typed_e23_numeric(bundle: Path, work: Path, config: str) -> None:
+    """E23: atomic numeric learning + curriculum-order contrast (frozen protocol).
+
+    docs/internal/E23_PROTOCOL_2026-10-10.md. Two questions SEPARATELY:
+      A (acquisition): do the new data teach numeric capability?
+      B (curriculum): does ordering those SAME data by phases beat shuffling?
+    Arms per seed (identical multiset, identical init, only ORDER differs):
+      e23_mix : multiset M, shuffled (rng seed^0xC0FFEE)
+      e23_cur : multiset M, phases first (atomic numeric block first)
+    Multiconjunto hash (IDs with multiplicities) must be IDENTICAL between
+    arms; the sequence hash must DIFFER (design). Selection: dev only.
+    """
+    import hashlib
+    import random as _random
+    import time as _time
+
+    import torch
+
+    if not torch.cuda.is_available():
+        raise SystemExit("typed_e23_numeric needs the GPU that was not assigned")
+    for i in range(torch.cuda.device_count()):
+        props = torch.cuda.get_device_properties(i)
+        log(f"e23 gpu[{i}]={props.name} vram={props.total_memory / 2**30:.1f} GiB")
+    root = _find_typed_root(bundle)
+    e19 = _find_e19_root(bundle)
+    e23 = _find_e23_root(bundle)
+    train_orig = _load(root, "train")
+    dev_orig = _load(root, "dev")
+    atomic_rows = _load_rows_file(e23 / "train_atomic_rows.jsonl")
+    dev_new = _load_rows_file(e23 / "dev_numeric_rows.jsonl")
+    # retention: E19 train_ctrl action slot (330 cases x 1 question, from TRAIN split only)
+    import json as _json
+
+    retention_rows = []
+    for line in (e19 / "train_ctrl_rows.jsonl").read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        row = _json.loads(line)
+        if row["id"].endswith(":action"):
+            from mokka_decisions.contracts import DecisionCase, Option
+            retention_rows.append(DecisionCase.from_dict(row))
+
+    def _load_probs(split: str) -> dict:
+        return {_json.loads(l)["id"]: _json.loads(l)
+                for l in (root / "cases" / f"probabilities_{split}.jsonl").read_text(encoding="utf-8").splitlines()
+                if l.strip()}
+
+    probs_train = _load_probs("train")
+    probs_dev = {i: r["probabilities"] for i, r in _load_probs("dev").items()}
+    qtypes = {}
+    for split in ("train", "dev"):
+        for line in (root / "cases" / f"{split}.jsonl").read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            row = _json.loads(line)
+            if row["id"] in qtypes:
+                raise ValueError(f"Duplicate question id across splits: {row['id']}")
+            qtypes[row["id"]] = row["question_type"]
+    for fname in ("train_atomic_rows.jsonl", "dev_numeric_rows.jsonl"):
+        seen_in_file = set()
+        for line in (e23 / fname).read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                row = _json.loads(line)
+                if row["id"] in seen_in_file:
+                    raise ValueError(f"Duplicate id within {fname}: {row['id']}")
+                seen_in_file.add(row["id"])
+                qtypes.setdefault(row["id"], row["question_type"])
+                if qtypes[row["id"]] != row["question_type"]:
+                    raise ValueError(f"Conflicting question_type for {row['id']}")
+    for c in retention_rows:
+        qtypes.setdefault(c.id, "choice")
+    soft_targets = {c.id: probs_train[c.id]["probabilities"] for c in train_orig
+                    if qtypes.get(c.id) == "score" and c.id in probs_train}
+    dev = dev_orig + dev_new
+    log(f"e23: orig={len(train_orig)} atomic={len(atomic_rows)} retention={len(retention_rows)} "
+        f"dev={len(dev)} (orig {len(dev_orig)} + new {len(dev_new)}) soft_orig={len(soft_targets)}")
+
+    # ---- build the shared multiset M ----
+    from mokka_decisions.contracts import DecisionCase, Option
+
+    def to_case(row):
+        return DecisionCase(id=row["id"], group_id=row["group_id"], source="e23", language="en",
+                            domain=row["domain"], state=row["state"], question=row["question"],
+                            options=tuple(Option(id=o["id"], description=o["description"]) for o in row["options"]),
+                            target_kind="single", target_option=row["target_option"])
+
+    atomic_cases = atomic_rows  # _load_rows_file already returns DecisionCase objects
+    retention_cases = retention_rows
+    multiset = list(train_orig) + atomic_cases + retention_cases
+    # multiset hash: sorted IDs with multiplicities
+    from collections import Counter
+    id_counts = Counter(c.id for c in multiset)
+    multiset_hash = hashlib.sha256(
+        json.dumps(sorted(id_counts.items()), sort_keys=True).encode()).hexdigest()
+    log(f"e23 multiset: {len(multiset)} rows, {len(id_counts)} distinct, hash={multiset_hash[:16]}")
+
+    from mokka_decisions.arch_julia import (
+        evaluate_julia_arch, make_seeded_julia_arch, train_julia_arch,
+    )
+    from safetensors.torch import load_file
+    from transformers import AutoTokenizer
+
+    tokenizer = AutoTokenizer.from_pretrained("jhu-clsp/mmBERT-small")
+    init_hashes: dict = {}
+    summary = {"protocol": "docs/internal/E23_PROTOCOL_2026-10-10.md (frozen pre-launch)",
+               "seeds": [42, 43, 44], "multiset_hash": multiset_hash,
+               "multiset_size": len(multiset), "init_hashes": {}, "seed_hash_equal": {}, "arms": {}}
+    for seed in (42, 43, 44):
+        # build arm-specific sequences
+        rng = _random.Random(seed ^ 0xC0FFEE)
+        mix_seq = list(multiset)
+        rng.shuffle(mix_seq)
+        atomic_ids = {a.id for a in atomic_cases}
+        cur_seq = atomic_cases + [c for c in multiset if c.id not in atomic_ids]
+        seq_hash_mix = hashlib.sha256("|".join(c.id for c in mix_seq).encode()).hexdigest()
+        seq_hash_cur = hashlib.sha256("|".join(c.id for c in cur_seq).encode()).hexdigest()
+        assert seq_hash_mix != seq_hash_cur, "arm sequences must differ (design)"
+        for name, seq in (("mix", mix_seq), ("cur", cur_seq)):
+            arm = f"e23_{name}_s{seed}"
+            model = make_seeded_julia_arch("jhu-clsp/mmBERT-small", seed=seed)
+            init_hash = _state_dict_sha256(model)
+            if seed in init_hashes:
+                equal = init_hash == init_hashes[seed]
+                summary["seed_hash_equal"][f"s{seed}"] = equal
+                if not equal:
+                    raise SystemExit(f"E23 init mismatch at seed {seed} ({name}): abort")
+            else:
+                init_hashes[seed] = init_hash
+            summary["init_hashes"][f"{name}_s{seed}"] = init_hash
+            t0 = _time.time()
+            report = train_julia_arch(
+                model, tokenizer, seq, dev, qtypes,
+                output_dir=str(work / arm), epochs=3, microbatch=4, grad_accumulation=8,
+                encoder_lr=2e-5, head_lr=1e-4, seed=seed, device="cuda",
+                max_length=1024, head_length=256,
+                reference_probabilities=probs_dev, soft_targets=soft_targets,
+                shuffle=False,
+            )
+            best_entry = None
+            for entry in report["history"]:
+                if best_entry is None or entry["dev"]["accuracy"] >= best_entry["dev"]["accuracy"]:
+                    best_entry = entry
+            model.load_state_dict(load_file(str(work / arm / "checkpoint_best.safetensors")))
+            full = evaluate_julia_arch(model, tokenizer, dev, qtypes, device="cuda",
+                                       reference_probabilities=probs_dev, collect_rows=True)
+            with (work / arm / "dev_rows_best.jsonl").open("w", encoding="utf-8") as f:
+                for row in full["rows"]:
+                    f.write(_json.dumps(row) + "\n")
+            latest = work / arm / "checkpoint_latest.pt"
+            if latest.exists():
+                latest.unlink()
+            summary["arms"][arm] = {
+                "recipe": name, "seed": seed, "init_sha256": init_hash,
+                "seq_sha256": seq_hash_mix if name == "mix" else seq_hash_cur,
+                "trained_s": round(_time.time() - t0, 1),
+                "best_dev_accuracy": report["best_dev_accuracy"],
+                "final_step": report["final_step"], "best_epoch": best_entry["epoch"],
+                "best_epoch_dev": {k: v for k, v in best_entry["dev"].items() if k != "rows"},
+                "selected_checkpoint_dev": {k: v for k, v in full.items() if k != "rows"},
+            }
+            log(f"{arm}: best_dev={report['best_dev_accuracy']:.4f} (epoch {best_entry['epoch']}) "
+                f"steps={report['final_step']} in {_time.time() - t0:.0f}s")
+            (work / "run_status.json").write_text(
+                _json.dumps({"stage": "typed_e23_numeric", "arm": arm,
+                             "best_dev": report["best_dev_accuracy"]}, indent=2), encoding="utf-8")
+    (work / "e23_summary.json").write_text(_json.dumps(summary, indent=2), encoding="utf-8")
+    log("e23_numeric: done")
+
 TYPED_STAGES = {"typed_arms": stage_typed_arms, "typed_a1": stage_typed_a1,
           "typed_ord": stage_typed_ord, "typed_small_ord": stage_typed_small_ord,
           "typed_e15": stage_typed_e15, "typed_e15_seeds": stage_typed_e15_seeds,
@@ -2197,6 +2373,7 @@ TYPED_STAGES = {"typed_arms": stage_typed_arms, "typed_a1": stage_typed_a1,
           "typed_e18_supervision": stage_typed_e18_supervision,
           "typed_e19_rulevar": stage_typed_e19_rulevar,
           "typed_e20_contrast": stage_typed_e20_contrast,
+          "typed_e23_numeric": stage_typed_e23_numeric,
           # H2 (controlled, one variable): the dev curves were not saturated at
           # 4/8 epochs; extend epochs only — data/init/loss/seeds unchanged.
           "typed_ord2": lambda b, w, c: stage_typed_ord(b, w, c, epochs=6, out="base_ord6"),
