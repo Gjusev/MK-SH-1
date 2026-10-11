@@ -493,7 +493,7 @@ def stage_baselines(bundle: Path, work: Path, config: str) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--stage", default="typed_e30_val",
+        "--stage", default="typed_e31_julia",
         help="comma-separated stages: smoke,train,resume_test,eval,baselines",
     )
     parser.add_argument("--config", default="configs/train.yaml")  # bundle v1 carries pilot-budget data
@@ -4100,6 +4100,174 @@ def stage_typed_e30_val(bundle: Path, work: Path, config: str) -> None:
     log("e29_forget: done")
 
 
+def _find_julia_src(bundle: Path) -> Path:
+    for marker in bundle.rglob("julia-src/julia/router/engine.py"):
+        return marker.parents[2]
+    raise SystemExit("julia-src not found in bundle (julia-src/julia/router/engine.py)")
+
+
+_E31_JULIA_SHA = "df853bf7fe424420011f3d0c47a05d7341aa9eefa7fb9f203ea4aada4ad95b72"
+
+
+def stage_typed_e31_julia(bundle: Path, work: Path, config: str) -> None:
+    """E31: fine-tune JULIA-1 on OUR 944-row grid (frozen protocol E31_PROTOCOL_2026-10-11.md).
+
+    The fair same-data comparison: Julia-1 official weights (sha-verified),
+    engine-required transformers==5.0.0 installed in-kernel, recipe mirroring
+    ours (AdamW 2e-5 uniform, wd 0.01, warmup 5%, clip 1.0, fp16+GradScaler,
+    effective batch 32 = 4x8 accumulation, 30 epochs max, dev-patience 10 on the
+    E26 numeric dev, finalist=final). Seeds 42+43 both run. Frozen criteria
+    J1-J4 with readings (a) recipe transferable (b) memorizes-without-order
+    (c) cannot fit at this budget. Nothing auto-launched after.
+    """
+    import hashlib as _hashlib
+    import json as _json
+    import subprocess as _subprocess
+    import sys as _sys
+    import time as _time
+
+    import torch
+
+    if not torch.cuda.is_available():
+        raise SystemExit("typed_e31_julia needs the GPU that was not assigned")
+    _subprocess.check_call([_sys.executable, "-m", "pip", "install", "-q",
+                            "transformers==5.0.0"], env={**__import__("os").environ,
+                                                          "PIP_CONFIG_FILE": "/dev/null"})
+    js = _find_julia_src(bundle)
+    got = _hashlib.sha256((js / "model.safetensors").read_bytes()).hexdigest()
+    if got != _E31_JULIA_SHA:
+        raise SystemExit(f"e31: Julia-1 weights hash mismatch: {got}")
+    log("e31: Julia-1 weights verified against frozen literal")
+    _sys.path.insert(0, str(js))
+    from julia.router.engine import FastEngine
+
+    dev_rows = [_json.loads(l) for l in (bundle / "e26-order/dev_rows.jsonl").read_text(
+        encoding="utf-8").splitlines() if l.strip()]
+    grid_rows = [_json.loads(l) for l in (bundle / "e28-ext/train_rows.jsonl").read_text(
+        encoding="utf-8").splitlines() if l.strip()]
+    e26 = _find_e26_root(bundle)
+    e27 = _find_e27_root(bundle)
+    specs = (("known", e26 / "test_c_rows.jsonl"), ("new", e26 / "test_d_rows.jsonl"),
+             ("mono", e26 / "mono_rows.jsonl"), ("e", e27 / "test_e_rows.jsonl"))
+    eval_rows = {name: [_json.loads(l) for l in path.read_text(encoding="utf-8").splitlines()
+                        if l.strip()] for name, path in specs}
+    log(f"e31: grid={len(grid_rows)} dev={len(dev_rows)} "
+        f"evals={ {k: len(v) for k, v in eval_rows.items()} }")
+
+    def to_payload(rows):
+        return [dict(state=_json.loads(r["state"]), question=r["question"],
+                     type="noul", options=["No", "Yes"]) for r in rows]
+
+    def golds(rows):
+        return [int(r["target_option"] == "true") for r in rows]
+
+    engine = FastEngine(js, device="cuda", transformer_backend="torch",
+                        strict_encoding=True, max_length=1024, head_length=512,
+                        batch_size=8, marker_only_head=False)
+    torch.backends.cuda.matmul.allow_tf32 = True
+
+    def evaluate(rows):
+        payload, gold = to_payload(rows), golds(rows)
+        correct, percase = 0, []
+        for i in range(0, len(payload), 16):
+            for ans, g, r in zip(engine.predict(payload[i:i + 16]), gold[i:i + 16], rows[i:i + 16]):
+                ok = int(ans["index"] == g)
+                correct += ok
+                percase.append({"id": r["id"], "pred": ans["index"], "gold": g, "ok": ok})
+        return correct / len(rows), percase
+
+    def run_seed(seed, work_dir):
+        import random as _random
+
+        work_dir.mkdir(parents=True, exist_ok=True)
+        _random.seed(seed)
+        torch.manual_seed(seed)
+        engine = FastEngine(js, device="cuda", transformer_backend="torch",
+                            strict_encoding=True, max_length=1024, head_length=512,
+                            batch_size=8, marker_only_head=False)
+        model = engine.model
+        model.train()
+        opt = torch.optim.AdamW(model.parameters(), lr=2e-5, weight_decay=0.01)
+        scaler = torch.amp.GradScaler("cuda")
+        encoded = engine._encode(to_payload(grid_rows))
+        gold_all = golds(grid_rows)
+        rng = _random.Random(seed ^ 0xE31)
+        steps_per_epoch = (len(encoded) + 31) // 32
+        warmup = max(int(steps_per_epoch * 30 * 0.05), 1)
+
+        def lr_lambda(step):
+            if step < warmup:
+                return step / warmup
+            p = (step - warmup) / max(steps_per_epoch * 30 - warmup, 1)
+            return max(0.05, 0.95 * (1 - p) + 0.05)
+
+        sched = torch.optim.lr_scheduler.LambdaLR(opt, lr_lambda)
+        best_dev, stale, history = -1.0, 0, []
+        payload_dev = to_payload(dev_rows)
+        for epoch in range(30):
+            order = list(range(len(encoded)))
+            rng.shuffle(order)
+            tr_correct, tr_seen = 0, 0
+            for chunk_start in range(0, len(order), 8):
+                idx = order[chunk_start:chunk_start + 8]
+                batch = engine._pack([encoded[i] for i in idx])
+                with torch.autocast("cuda", dtype=torch.float16):
+                    values = model(**batch)
+                    logits = values[batch["marker_mask"]].view(len(idx), -1)
+                    gold = torch.tensor([gold_all[i] for i in idx], device=logits.device)
+                    loss = torch.nn.functional.cross_entropy(logits, gold) / 4
+                scaler.scale(loss).backward()
+                tr_correct += int((logits.argmax(-1) == gold).sum())
+                tr_seen += len(idx)
+                if (chunk_start // 8 + 1) % 4 == 0 or chunk_start + 8 >= len(order):
+                    scaler.unscale_(opt)
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                    scaler.step(opt)
+                    scaler.update()
+                    sched.step()
+                    opt.zero_grad(set_to_none=True)
+            model.eval()
+            dev_acc, _ = evaluate(dev_rows)
+            tr_acc = tr_correct / tr_seen
+            history.append({"epoch": epoch, "train_acc": round(tr_acc, 4),
+                            "dev_acc": round(dev_acc, 4)})
+            log(f"e31 s{seed} epoch={epoch} train={tr_acc:.4f} dev={dev_acc:.4f}")
+            best_dev, stale = (dev_acc, 0) if dev_acc > best_dev + 1e-12 else (best_dev, stale + 1)
+            model.train()
+            if stale >= 10:
+                break
+        model.eval()
+        result = {"epochs": len(history), "final_train_acc": history[-1]["train_acc"],
+                  "final_dev_acc": history[-1]["dev_acc"], "best_dev_acc": best_dev,
+                  "history": history, "evals": {}}
+        for name, rows in eval_rows.items():
+            acc, percase = evaluate(rows)
+            result["evals"][name] = {"n": len(rows), "accuracy": round(acc, 4)}
+            (work_dir / f"eval_{name}.jsonl").write_text(
+                "".join(_json.dumps(r) + "\n" for r in percase), encoding="utf-8")
+        (work_dir / "curves.jsonl").write_text(
+            "".join(_json.dumps(h) + "\n" for h in history), encoding="utf-8")
+        from safetensors.torch import save_file
+        save_file(dict(model.state_dict()), str(work_dir / "final.safetensors"),
+                  metadata={"format": "pt"})
+        log(f"e31 s{seed}: { {k: v['accuracy'] for k, v in result['evals'].items()} }")
+        del model, engine, opt
+        torch.cuda.empty_cache()
+        return result
+
+    summary = {"protocol": "docs/internal/E31_PROTOCOL_2026-10-11.md (frozen pre-launch)",
+               "subject": "Julia-1 official weights fine-tuned on our 944-row E28 grid",
+               "julia_sha256": _E31_JULIA_SHA,
+               "results": {}}
+    for seed in (42, 43):
+        summary["results"][f"s{seed}"] = run_seed(seed, work / f"s{seed}")
+    (work / "e31_summary.json").write_text(_json.dumps(summary, indent=2, default=str),
+                                           encoding="utf-8")
+    log("e31_julia: done")
+
+
+
+
 TYPED_STAGES = {"typed_arms": stage_typed_arms, "typed_a1": stage_typed_a1,
           "typed_ord": stage_typed_ord, "typed_small_ord": stage_typed_small_ord,
           "typed_e15": stage_typed_e15, "typed_e15_seeds": stage_typed_e15_seeds,
@@ -4120,6 +4288,7 @@ TYPED_STAGES = {"typed_arms": stage_typed_arms, "typed_a1": stage_typed_a1,
           "typed_e29_forget": stage_typed_e29_forget,
           "typed_e29b_integration": stage_typed_e29b_integration,
           "typed_e30_val": stage_typed_e30_val,
+          "typed_e31_julia": stage_typed_e31_julia,
           # H2 (controlled, one variable): the dev curves were not saturated at
           # 4/8 epochs; extend epochs only — data/init/loss/seeds unchanged.
           "typed_ord2": lambda b, w, c: stage_typed_ord(b, w, c, epochs=6, out="base_ord6"),
