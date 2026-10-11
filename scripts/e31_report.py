@@ -15,6 +15,13 @@ runs/julia-research/numeric_zeroshot.json.
 Versioned post-closure to fix REVIEW_E31 H1 (the closure claimed a versioned
 analyzer that did not exist); this script regenerates the frozen report
 byte-exact.
+
+INVALID_MODEL_BINDING (2026-10-11 correction): the eval/dev rows this report
+summarizes measured the EXTERNAL engine with ORIGINAL Julia weights, not the
+trained checkpoints — see runs/e31-analysis/INVALID_MODEL_BINDING_NOTICE.json
+and the corrective re-evaluation scripts/e31_recovery_report.py. This script
+reproduces the INVALID history verbatim (frozen file unchanged); it does not
+endorse reading b_memorizes_without_order, which is WITHDRAWN.
 """
 
 from __future__ import annotations
@@ -127,6 +134,9 @@ def main() -> int:
     (OUT / "e31_report.json").write_text(json.dumps(report, indent=2),
                                          encoding="utf-8")  # frozen file has no trailing newline
     print(f"wrote {OUT / 'e31_report.json'}")
+    print("WARNING: this reproduces INVALID history (invalid_model_binding) — "
+          "evals/dev measured the external original-weights engine; corrective "
+          "re-evaluation: scripts/e31_recovery_report.py", file=sys.stderr)
     return 0
 
 

@@ -3193,16 +3193,17 @@ def stage_typed_e31_julia(bundle: Path, work: Path, config: str) -> None:
     def golds(rows):
         return [int(r["target_option"] == "true") for r in rows]
 
-    engine = FastEngine(js, device="cuda", transformer_backend="torch",
-                        strict_encoding=True, max_length=1024, head_length=512,
-                        batch_size=8, marker_only_head=False)
+    # E31 correction (invalid_model_binding, 2026-10-11): evaluate previously
+    # closed over a stage-scope engine loaded with ORIGINAL Julia weights, so
+    # dev and tests inside run_seed evaluated the wrong model. The engine is
+    # now an explicit argument and the surplus external engine is gone.
     torch.backends.cuda.matmul.allow_tf32 = True
 
-    def evaluate(rows):
+    def evaluate(eval_engine, rows):
         payload, gold = to_payload(rows), golds(rows)
         correct, percase = 0, []
         for i in range(0, len(payload), 16):
-            for ans, g, r in zip(engine.predict(payload[i:i + 16]), gold[i:i + 16], rows[i:i + 16]):
+            for ans, g, r in zip(eval_engine.predict(payload[i:i + 16]), gold[i:i + 16], rows[i:i + 16]):
                 ok = int(ans["index"] == g)
                 correct += ok
                 percase.append({"id": r["id"], "pred": ans["index"], "gold": g, "ok": ok})
@@ -3259,7 +3260,7 @@ def stage_typed_e31_julia(bundle: Path, work: Path, config: str) -> None:
                     sched.step()
                     opt.zero_grad(set_to_none=True)
             model.eval()
-            dev_acc, _ = evaluate(dev_rows)
+            dev_acc, _ = evaluate(engine, dev_rows)
             tr_acc = tr_correct / tr_seen
             history.append({"epoch": epoch, "train_acc": round(tr_acc, 4),
                             "dev_acc": round(dev_acc, 4)})
@@ -3269,11 +3270,21 @@ def stage_typed_e31_julia(bundle: Path, work: Path, config: str) -> None:
             if stale >= 10:
                 break
         model.eval()
+        # identity of the weights ACTUALLY evaluated below (dev used the same
+        # engine object; this hash is taken at eval time, not of the saved file)
+        import hashlib as _hashlib
+        _h = _hashlib.sha256()
+        for _k in sorted(model.state_dict()):
+            _t = model.state_dict()[_k].detach().to(torch.float32).cpu().contiguous()
+            _h.update(_k.encode("utf-8")); _h.update(_t.numpy().tobytes())
+        eval_weights_sha256 = _h.hexdigest()
         result = {"epochs": len(history), "final_train_acc": history[-1]["train_acc"],
                   "final_dev_acc": history[-1]["dev_acc"], "best_dev_acc": best_dev,
-                  "history": history, "evals": {}}
+                  "history": history, "evals": {},
+                  "eval_model": {"binding": "run_seed local engine (engine.model)",
+                                 "eval_weights_sha256": eval_weights_sha256}}
         for name, rows in eval_rows.items():
-            acc, percase = evaluate(rows)
+            acc, percase = evaluate(engine, rows)
             result["evals"][name] = {"n": len(rows), "accuracy": round(acc, 4)}
             (work_dir / f"eval_{name}.jsonl").write_text(
                 "".join(_json.dumps(r) + "\n" for r in percase), encoding="utf-8")
