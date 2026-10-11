@@ -3,6 +3,13 @@
 One row per executed experiment. Artifacts under `runs/` (gitignored; hashes
 in `runs/**/run_report.json` and dataset manifests). Nothing here is projected.
 
+## E29b — Validación formal de integración, curriculum de 15 épocas (kernel mokka-typed-e29b v1) — COMPLETADO: **F1' PASA — VERSIÓN VALIDADA**
+
+- Único cambio declarado frente a E29: 3 fases × 5 épocas en lugar de 4 (motivado por la curva E29: la tarea se recupera ya en fase 3 y el coste de orden fresco se concentra en la fase 4). Mismos datos, candidata (hash verificado), muestra y barras. Un solo tiro, declarado.
+- **F1' PASA con margen: MIX@fase3 testC 0,9583 (≥0,90) Y testE-interp 0,9310 con 8/8 puros (≥0,90 — esta vez ni a una fila).** Secundarios: VE2 **9/10** (≥0,80 ✓), E-extrap 0,786, tarea 0,690. Las fases 1-3 reproducen E29 EXACTAMENTE (continuación determinista — el run vale además como replicación).
+- **LA VERSIÓN (formalmente validada contra el criterio pre-registrado):** candidata E28-s43 + 15 épocas de mezcla 944 originales + 944 replay → testC 0,958 · testD 0,926 · mono-hist 0,967 · E-interp 0,931 (8/8) · E-extrap 0,786 · VE2 9/10 · tarea original 0,690 (desde 0,157). Informe de versión: `docs/internal/VERSION_REPORT_E24-E29_2026-10-11.md`.
+- Artefactos: `runs/kaggle-typed-e29b/` (baseline, candidata inicial, MIX fases 1-3 + final), `runs/e29b-analysis/`.
+
 ## E29 — Estudio de olvido / integración (kernel mokka-typed-e29 v2) — COMPLETADO: SIN catástrofe; el replay protege lo fresco; la tarea se recupera
 
 - Candidata E28-s43 (hash verificado) reanudada con tareas originales, brazos MIX (944 originales + 944 replay E28) vs ORIG (solo originales), 4 fases × 5 épocas, semilla 43. v1 falló por carrera dataset-kernel (la versión nueva del bundle se materializó 4 min después del arranque; el kernel montó la anterior sin e29-mix y la guarda de hash abortó — arreglado con verificación de creationDate antes de re-push; lección registrada).
