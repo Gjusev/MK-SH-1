@@ -3,6 +3,13 @@
 One row per executed experiment. Artifacts under `runs/` (gitignored; hashes
 in `runs/**/run_report.json` and dataset manifests). Nothing here is projected.
 
+## E30 — Validación INDEPENDIENTE de la integración, muestra disjunta (kernel mokka-typed-e30 v1) — COMPLETADO: **F1'' PASA — INTEGRACIÓN VALIDADA DE FORMA INDEPENDIENTE**
+
+- La condición que a E29b le faltaba: muestra original NUEVA y disjunta (puestos 945-1888 del orden sha256; slice de tarea 301-600), congelada ANTES de poder conocer el desenlace. Todo lo demás idéntico (candidata hash-verificada, replay E28, 3×5 fases, optimizador fresco por fase).
+- **MIX@fase3: testC 0,9792 (≥0,90; MEJOR que E29b) Y testE-interp 0,9224 con 8/8 puros (≥0,90) → F1'' cumplido.** VE2 9/10. Tarea 0,7333 (mejor que 0,690 con la muestra original — la recuperación es robusta e incluso favorable a la muestra). E-extrap 0,750 (2/8) sigue siendo el número débil declarado de la familia.
+- **Lectura (i) pre-registrada: la receta de integración NO es específica de la muestra.** La línea E24→E30 cierra: orden adquirido (atajos excluidos por construcción) → replicado → integrado con replay (sin catástrofe) → formalizado (E29b) → **validado de forma independiente (E30)**.
+- Informe `runs/e30-analysis/` (+35 hashes), analizador versionado `scripts/e30_report.py`.
+
 ## E29b — Criterio F1' en curriculum de 15 épocas (kernel mokka-typed-e29b v1) — COMPLETADO: **F1' cumplido por replicación determinista (criterio registrado tras observar E29 — formalización, no prueba independiente)**
 
 - Único cambio declarado frente a E29: 3 fases × 5 épocas en lugar de 4 (motivado por la curva E29: la tarea se recupera ya en fase 3 y el coste de orden fresco se concentra en la fase 4). Mismos datos, candidata (hash verificado), muestra y barras. Un solo tiro, declarado.
