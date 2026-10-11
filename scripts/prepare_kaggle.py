@@ -64,6 +64,7 @@ def main() -> int:
     parser.add_argument("--e28-dir", default=None, help="include e28-ext data dir as e28-ext/")
     parser.add_argument("--e29-mix-dir", default=None, help="include e29-mix manifest dir as e29-mix/")
     parser.add_argument("--e30-mix-dir", default=None, help="include e30-mix manifest dir as e30-mix/")
+    parser.add_argument("--e35-dir", default=None, help="include e35-extremes data dir as e35-extremes/")
     parser.add_argument("--julia-src", default=None, help="include Julia-1 upstream source (weights+engine) as julia-src/")
     parser.add_argument("--e29-ckpt", default=None, help="include the E28 s43 finalist as e29-mix/e29-ckpts/e28_s43_final.safetensors")
     parser.add_argument("--e26-ckpt-dir", default=None, help="include E26 finalist checkpoints as e26-ckpts/ (s42/s43 treat finals)")
@@ -160,6 +161,7 @@ def main() -> int:
             if not (ed / "manifest.json").exists():
                 raise SystemExit(f"no e30-mix manifest under {ed}")
             shutil.copytree(ed, bundle / "e30-mix")
+
         if args.julia_src:
             import hashlib as _hl
             src = Path(args.julia_src)
@@ -169,6 +171,11 @@ def main() -> int:
             want = "df853bf7fe424420011f3d0c47a05d7341aa9eefa7fb9f203ea4aada4ad95b72"
             if got != want:
                 raise SystemExit(f"julia weights hash mismatch: {got}")
+        if args.e35_dir:
+            ed = Path(args.e35_dir)
+            if not (ed / "manifest.json").exists():
+                raise SystemExit(f"no e35 manifest under {ed}")
+            shutil.copytree(ed, bundle / "e35-extremes")
         if args.e29_ckpt:
             import hashlib as _hl
             src = Path(args.e29_ckpt)

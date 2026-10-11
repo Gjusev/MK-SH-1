@@ -134,6 +134,11 @@ it refines by which task is at stake.
 - Any claim that the **architecture** is the differentiator — recipes differ.
 - OOD/threshold-transfer claims from E25 (decade-shortcut qualified) —
   superseded by E26's review.
+- **The historical efficiency advantage (~1.35× faster, E22 v2)**: the v3
+  formal measurement (E22 harness rev-3, both models on the same 750 typed
+  questions, CPU float32, 8 threads, threads-after-load, inference_mode)
+  shows **a tie** — b1 ratio Julia/Mokka = 0.99 (106.1 vs 106.4 ms p50);
+  b16 Julia is ~5-10% *faster*. The v2 claim is **retracted**.
 
 ## Reproduce
 
