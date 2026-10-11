@@ -3219,6 +3219,12 @@ def stage_typed_e31_julia(bundle: Path, work: Path, config: str) -> None:
                             strict_encoding=True, max_length=1024, head_length=512,
                             batch_size=8, marker_only_head=False)
         model = engine.model
+        # inference-link guards (E31 correction): the engine passed to evaluate
+        # must run THIS model — FastEngine.forward is engine.model (no compile);
+        # otherwise a weights hash would not cover the object doing inference
+        assert engine.model is model and engine.forward is engine.model, (
+            "e31: eval engine/model link broken — weight identity would not "
+            "cover inference")
         model.train()
         opt = torch.optim.AdamW(model.parameters(), lr=2e-5, weight_decay=0.01)
         scaler = torch.amp.GradScaler("cuda")
@@ -3281,8 +3287,16 @@ def stage_typed_e31_julia(bundle: Path, work: Path, config: str) -> None:
         result = {"epochs": len(history), "final_train_acc": history[-1]["train_acc"],
                   "final_dev_acc": history[-1]["dev_acc"], "best_dev_acc": best_dev,
                   "history": history, "evals": {},
-                  "eval_model": {"binding": "run_seed local engine (engine.model)",
-                                 "eval_weights_sha256": eval_weights_sha256}}
+                  "eval_model": {
+                      "binding": "run_seed local engine (engine.model); guards "
+                                 "asserted: engine.model is model and "
+                                 "engine.forward is engine.model",
+                      "weights_sha256_kind": "in-memory state_dict, sorted keys "
+                                             "(key bytes + float32-canonicalized "
+                                             "tensor bytes) — hash of the weights "
+                                             "AT EVAL TIME, distinct from the "
+                                             "final.safetensors FILE sha256",
+                      "eval_weights_sha256": eval_weights_sha256}}
         for name, rows in eval_rows.items():
             acc, percase = evaluate(engine, rows)
             result["evals"][name] = {"n": len(rows), "accuracy": round(acc, 4)}

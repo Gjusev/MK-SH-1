@@ -78,6 +78,27 @@ def test_run_seed_calls_pass_local_engine():
         first = c.args[0]
         assert isinstance(first, ast.Name) and first.id == "engine", (
             "evaluate must be called with run_seed's local trained engine")
+    # dev AND tests must both route through run_seed's engine: the dev call is
+    # evaluate(engine, dev_rows); the test loop calls evaluate(engine, rows)
+    has_dev = any(isinstance(c.args[1], ast.Name) and c.args[1].id == "dev_rows"
+                  for c in calls)
+    has_test = any(isinstance(c.args[1], ast.Name) and c.args[1].id == "rows"
+                   for c in calls)
+    assert has_dev, "no evaluate(engine, dev_rows) dev call found in run_seed"
+    assert has_test, "no evaluate(engine, rows) test call found in run_seed"
+
+
+def test_inference_link_guards_present():
+    """The hashed model must BE the engine's forward model, or the weights
+    identity would not cover inference (supervisor review 2026-10-11)."""
+    src = TYPED.read_text(encoding="utf-8")
+    run_seed = _nested(_stage_node(src), "run_seed")
+    assert any(isinstance(n, ast.Assert)
+               for n in ast.walk(run_seed)), (
+        "run_seed must assert the engine/model inference link")
+    body_src = ast.unparse(run_seed)
+    assert "engine.model is model" in body_src
+    assert "engine.forward is engine.model" in body_src
 
 
 def test_eval_weights_identity_registered():
@@ -89,6 +110,10 @@ def test_eval_weights_identity_registered():
         "run_seed must register the sha256 of the state_dict actually evaluated "
         "(not just the saved checkpoint file)")
     assert "eval_model" in body_src
+    # the hash must declare its canonicalization and differ from the file hash
+    assert "weights_sha256_kind" in body_src, (
+        "the tensor hash must declare its format (sorted keys + float32 "
+        "canonicalization) and be distinguishable from the saved-file sha256")
 
 
 class _SentinelEngine:
