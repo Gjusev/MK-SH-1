@@ -3612,6 +3612,234 @@ def stage_typed_e34_replay(bundle: Path, work: Path, config: str) -> None:
     log("e34_replay: done")
 
 
+def _find_e35_root(bundle: Path) -> Path:
+    for marker in bundle.rglob("e35-extremes/manifest.json"):
+        return marker.parent
+    raise SystemExit("e35-extremes not found (e35-extremes/manifest.json)")
+
+
+_E35_START_SHA = "752770f7f6077be0a769f296dfbb9544417aed5fc1ce9d7d853cd86b655a7644"
+
+
+def stage_typed_e35_extremes(bundle: Path, work: Path, config: str) -> None:
+    """E35: extremes + replay protection (frozen docs/E35_CRITERIA_2026-10-11.md).
+
+    From the E30-final checkpoint (published HF), 3x5 phases mixing a NEW
+    disjoint extreme grid + standard grid replay + original task replay.
+    F1 pre-registered: E-extrap >= 0.85 both seeds without sacrificing
+    anything gained. 1 shot, no retries.
+    """
+    import hashlib as _hashlib
+    import json as _json
+    import random as _random
+    import time as _time
+
+    import torch
+
+    if not torch.cuda.is_available():
+        raise SystemExit("typed_e35_extremes needs the GPU that was not assigned")
+    e26 = _find_e26_root(bundle)
+    e27 = _find_e27_root(bundle)
+    e28 = _find_e28_root(bundle)
+    e29 = _find_e29_root(bundle)
+    e35 = _find_e35_root(bundle)
+
+    ckpt_file = e35 / "ckpt" / "e30_final.safetensors"
+    got = _hashlib.sha256(ckpt_file.read_bytes()).hexdigest()
+    if got != _E35_START_SHA:
+        raise SystemExit(f"e35: start checkpoint hash mismatch: {got}")
+    log("e35: E30-final checkpoint verified against frozen literal")
+
+    grid_rows = [_json.loads(l) for l in (e28 / "train_rows.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()]
+    ext_rows = [_json.loads(l) for l in (e35 / "train_rows.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()]
+    dev_rows = [_json.loads(l) for l in (e26 / "dev_rows.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()]
+    man29 = _json.loads((e29 / "manifest.json").read_text(encoding="utf-8"))
+
+    def rows_with_ids(path, ids):
+        want = set(ids)
+        rows = [_json.loads(l) for l in Path(path).read_text(encoding="utf-8").splitlines() if l.strip()]
+        picked = [r for r in rows if r["id"] in want]
+        if len(picked) != len(want):
+            raise SystemExit(f"e35: id mismatch: {len(picked)}/{len(want)}")
+        return picked
+
+    task_rows = rows_with_ids(bundle / "data/processed/v1/instances/train.jsonl",
+                              man29["original_train_ids"])
+    task_dev = rows_with_ids(bundle / "data/processed/v1/eval/dev_eval.jsonl",
+                             man29["original_dev_ids"])
+    eval_sets = {}
+    for name, root, fname in (("known", e26, "test_c_rows.jsonl"), ("new", e26, "test_d_rows.jsonl"),
+                              ("mono", e26, "mono_rows.jsonl"), ("e", e27, "test_e_rows.jsonl")):
+        eval_sets[name] = [_json.loads(l) for l in (root / fname).read_text(encoding="utf-8").splitlines() if l.strip()]
+    eval_sets["task"] = task_dev
+
+    def payload_of(r):
+        if r.get("question_type") == "noul":
+            return dict(state=_json.loads(r["state"]), question=r["question"],
+                        type="noul", options=["No", "Yes"])
+        return dict(state=r["state"], question=r["question"], type="choice",
+                    options=[o["description"] for o in r["options"]])
+
+    def gold_of(r):
+        if r.get("question_type") == "noul":
+            return int(r["target_option"] == "true")
+        return next(i for i, o in enumerate(r["options"]) if o["id"] == r["target_option"])
+
+    all_mix = ext_rows + grid_rows + task_rows
+    mix_gold = [gold_of(r) for r in all_mix]
+    log(f"e35: extremes={len(ext_rows)} grid_replay={len(grid_rows)} task_replay={len(task_rows)} "
+        f"mix={len(all_mix)} dev={len(dev_rows)} evals={ {k: len(v) for k, v in eval_sets.items()} }")
+
+    from mokka_decisions.arch_julia import (JuliaArchScorer, evaluate_julia_arch,
+                                             julia_sequence)
+    from mokka_decisions.contracts import DecisionCase, Option
+    from safetensors.torch import load_file
+    from transformers import AutoTokenizer
+
+    tok = AutoTokenizer.from_pretrained("jhu-clsp/mmBERT-small")
+
+    def eval_checkpoint(model, seed_dir, tag):
+        _h = _hashlib.sha256()
+        for _k in sorted(model.state_dict()):
+            _t = model.state_dict()[_k].detach().to(torch.float32).cpu().contiguous()
+            _h.update(_k.encode("utf-8"))
+            _h.update(_t.numpy().tobytes())
+        out = {"tag": tag, "eval_weights_sha256": _h.hexdigest(), "sets": {}}
+        model.eval()
+        for name, rows in eval_sets.items():
+            cases = [DecisionCase(id=r["id"], group_id=r.get("group_id", r["id"]), source="e35",
+                                  language="en", domain=r.get("domain", "task"),
+                                  state=r["state"], question=r["question"],
+                                  options=tuple(Option(id=o["id"], description=o["description"])
+                                                for o in r["options"]),
+                                  target_kind="single", target_option=r["target_option"])
+                     for r in rows]
+            qt = {r["id"]: r.get("question_type") or "choice" for r in rows}
+            ev = evaluate_julia_arch(model, tok, cases, qt, device="cuda", collect_rows=True)
+            out["sets"][name] = {"n": ev["n"], "accuracy": round(ev["accuracy"], 4)}
+            (seed_dir / f"eval_{name}__{tag}.jsonl").write_text(
+                "".join(_json.dumps(r) + "\n" for r in ev.get("rows", [])), encoding="utf-8")
+        model.train()
+        return out
+
+    def train_phase(model, phase, seed, epochs=5):
+        opt = torch.optim.AdamW(model.parameter_groups(2e-5, 1e-4), weight_decay=0.01)
+        scaler = torch.amp.GradScaler("cuda")
+        rng = _random.Random(seed ^ 0xE35 ^ phase)
+        encoded = []
+        for r in all_mix:
+            p = payload_of(r)
+            state_str = _json.dumps(p["state"]) if isinstance(p["state"], dict) else p["state"]
+            item = julia_sequence(tok, state_str, p["question"], p["options"], p["type"], 1024, 256)
+            encoded.append(item)
+        spe = (len(encoded) + 31) // 32
+        total = max(spe * epochs, 1)
+        warmup = max(int(total * 0.05), 1)
+
+        def lr_lambda(step):
+            if step < warmup:
+                return step / warmup
+            pr = (step - warmup) / max(total - warmup, 1)
+            return max(0.05, 0.95 * (1 - pr) + 0.05)
+
+        sched = torch.optim.lr_scheduler.LambdaLR(opt, lr_lambda)
+        hist = []
+        for epoch in range(epochs):
+            order = list(range(len(encoded)))
+            rng.shuffle(order)
+            tr_correct = tr_seen = 0
+            for cs in range(0, len(order), 8):
+                idx = order[cs:cs + 8]
+                batch_items = [encoded[i] for i in idx]
+                length = min(max(len(x["ids"]) for x in batch_items), 1024)
+                count = max(len(x["markers"]) for x in batch_items)
+                ids = torch.zeros(len(idx), length, dtype=torch.long)
+                att = torch.zeros_like(ids)
+                mpos = torch.zeros(len(idx), count, dtype=torch.long)
+                mmask = torch.zeros(len(idx), count, dtype=torch.bool)
+                qt = torch.tensor([x["qtype"] for x in batch_items])
+                for bi, it in enumerate(batch_items):
+                    n, k = len(it["ids"]), len(it["markers"])
+                    take = min(n, length)
+                    ids[bi, :take] = torch.tensor(it["ids"][:take])
+                    att[bi, :take] = 1
+                    mpos[bi, :k] = torch.tensor(it["markers"])
+                    mmask[bi, :k] = True
+                keys = ("input_ids", "attention_mask", "marker_pos", "marker_mask", "qtype")
+                cdict = {"input_ids": ids.cuda(), "attention_mask": att.cuda(),
+                         "marker_pos": mpos.cuda(), "marker_mask": mmask.cuda(), "qtype": qt.cuda()}
+                with torch.autocast("cuda", dtype=torch.float16):
+                    values = model(**{k2: cdict[k2] for k2 in keys})
+                    mask = cdict["marker_mask"]
+                    flat = values[mask]
+                    counts = mask.sum(dim=1)
+                    row_losses, off, hits = [], 0, 0
+                    for bi, ii in enumerate(idx):
+                        k = int(counts[bi])
+                        row_logits = flat[off:off + k].unsqueeze(0)
+                        off += k
+                        g = torch.tensor([mix_gold[ii]], device=flat.device)
+                        row_losses.append(torch.nn.functional.cross_entropy(row_logits, g))
+                        hits += int(row_logits.argmax(-1).item() == mix_gold[ii])
+                    loss = torch.stack(row_losses).mean() / 4
+                scaler.scale(loss).backward()
+                tr_correct += hits
+                tr_seen += len(idx)
+                if (cs // 8 + 1) % 4 == 0 or cs + 8 >= len(order):
+                    scaler.unscale_(opt)
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                    scaler.step(opt)
+                    scaler.update()
+                    sched.step()
+                    opt.zero_grad(set_to_none=True)
+            model.eval()
+            dev_cases = [DecisionCase(id=r["id"], group_id=r["group_id"], source="e35",
+                                      language="en", domain=r["domain"], state=r["state"],
+                                      question=r["question"],
+                                      options=tuple(Option(id=o["id"], description=o["description"])
+                                                    for o in r["options"]),
+                                      target_kind="single", target_option=r["target_option"])
+                         for r in dev_rows]
+            dqt = {r["id"]: "noul" for r in dev_rows}
+            dev_ev = evaluate_julia_arch(model, tok, dev_cases, dqt, device="cuda")
+            model.train()
+            hist.append({"phase": phase, "epoch": epoch,
+                         "train_acc": round(tr_correct / tr_seen, 4),
+                         "dev_acc": round(dev_ev["accuracy"], 4)})
+            log(f"e35 s{seed} ph{phase} ep={epoch} train={tr_correct / tr_seen:.4f} dev={dev_ev['accuracy']:.4f}")
+        return hist
+
+    summary = {"protocol": "docs/E35_CRITERIA_2026-10-11.md", "start_sha256": _E35_START_SHA,
+               "results": {}}
+    for seed in (42, 43):
+        t0 = _time.time()
+        seed_dir = work / f"s{seed}"
+        seed_dir.mkdir(parents=True, exist_ok=True)
+        model = JuliaArchScorer("jhu-clsp/mmBERT-small")
+        model.load_state_dict(load_file(str(ckpt_file)))
+        model.to("cuda")
+        model.train()
+        history, ckpts = [], []
+        ckpts.append(eval_checkpoint(model, seed_dir, "t0"))
+        for ph in (1, 2, 3):
+            history.extend(train_phase(model, ph, seed))
+            ckpts.append(eval_checkpoint(model, seed_dir, f"post_ph{ph}"))
+        from safetensors.torch import save_file as _save
+
+        model.eval()
+        _save(dict(model.state_dict()), str(seed_dir / "final.safetensors"), metadata={"format": "pt"})
+        (seed_dir / "curves.jsonl").write_text(
+            "".join(_json.dumps(h) + "\n" for h in history), encoding="utf-8")
+        summary["results"][f"s{seed}"] = {"epochs_total": len(history), "history": history,
+                                           "checkpoints": ckpts, "wall_s": round(_time.time() - t0, 1)}
+        log(f"e35 s{seed}: done in {_time.time() - t0:.0f}s - final "
+            f"{ {k: v['accuracy'] for k, v in ckpts[-1]['sets'].items()} }")
+        del model
+        torch.cuda.empty_cache()
+    (work / "e35_summary.json").write_text(_json.dumps(summary, indent=2, default=str), encoding="utf-8")
+    log("e35_extremes: done")
+
+
 STAGES = {"typed_arms": stage_typed_arms, "typed_a1": stage_typed_a1,
           "typed_ord": stage_typed_ord, "typed_small_ord": stage_typed_small_ord,
           "typed_e15": stage_typed_e15, "typed_e15_seeds": stage_typed_e15_seeds,
@@ -3625,6 +3853,7 @@ STAGES = {"typed_arms": stage_typed_arms, "typed_a1": stage_typed_a1,
           "typed_e25_thrvar": stage_typed_e25_thrvar,
           "typed_e26_order": stage_typed_e26_order,
           "typed_e34_replay": stage_typed_e34_replay,
+          "typed_e35_extremes": stage_typed_e35_extremes,
           "typed_e26b_diag": stage_typed_e26b_diag,
           "typed_e26c_seeds": stage_typed_e26c_seeds,
           "typed_e27_grid": stage_typed_e27_grid,

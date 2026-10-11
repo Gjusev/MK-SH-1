@@ -3,6 +3,23 @@
 One row per executed experiment. Artifacts under `runs/` (gitignored; hashes
 in `runs/**/run_report.json` and dataset manifests). Nothing here is projected.
 
+## E35 — Extremos + protección replay (kernel mokka-typed-e35 v5) — COMPLETADO: F1 PASA ambas semillas — v1.1 candidata
+
+- La combinación nunca probada: fase de extremos CON replay (E28 atacó bordes sin replay y la lectura iv «interferencia» disparó; E29+ nunca reintentó bordes con él). Desde el checkpoint E30-final (sha verificado in-kernel), 3×5 fases de mezcla: grid de extremos NUEVO disjunto (31 valores, 248 filas balanceadas) + replay del grid estándar (944) + replay de tarea original (944). Criterios congelados ANTES (`docs/E35_CRITERIA_2026-10-11.md`, `cd972b4f`). 4 incidentes de infraestructura corregidos sin cambios de protocolo (carrera dataset-kernel v1, ruta `ckpt/` v2, literal sha con un carácter menos v3/v4 — las guardas dispararon correctamente en cada caso).
+- **F1 PASSES ambas semillas (las 5 barras):**
+
+| Métrica (final) | barra | s42 | s43 |
+|---|---|---|---|
+| **E-extrap** | ≥0,85 | **0,875** (49/56, 7/8 puros) | **0,857** (48/56, 4/8) |
+| testC | ≥0,95 | 0,979 (47/48) | 0,979 (47/48) |
+| E-interp | ≥0,90 | 0,914 (106/116, 8/8 puros) | 0,922 (107/116, 8/8) |
+| tarea | ≥0,65 | **0,800** (240/300) | **0,783** (235/300) |
+| VE2 | ≥0,80 | 0,80 (8/10) | **1,00** (10/10) |
+
+- **E-extrap sube de 0,750 → 0,875/0,857 (+12,5/+10,7 pp) — la barra de 0,85 se CRUZA** sin sacrificar NADA de lo ganado. La tarea MEJORA (0,703→0,800/0,783); E-interp se mantiene ≥0,914; testC idéntico. La lectura (iv) de E28 (interferencia bordes↔núcleo) queda RESUELTA: con replay, la interferencia desaparece.
+- Extras: VE2 s43 perfecto (10/10, primera vez); pure extrap pairs s42 7/8 (de 2/8). Pendiente del supervisor: GO para re-export HF como v1.1.
+- Artefactos: `runs/kaggle-typed-e35/` (2 semillas × 4 checkpoints con hash, curvas, per-case × 5 sets), `runs/e35-analysis/` (reporte determinista byte-exact + 47 hashes), `runs/kaggle-typed-e35-v{1,2,3}-error/` (logs preservados). Commits: `cd972b4f` (criterios), `62a41eda` (prep+eficiencia v3), cierre. Suite 195/194+1skip. Sin push hasta GO. Sin re-export HF (espera GO).
+
 ## E34 — Replay para Julia adaptada, espejo E29b (kernel mokka-typed-e34 v2) — COMPLETADO: R1-dual PASA bajo lectura-intención de V1; SU tarea real se degrada MÁS que sin replay
 
 - Pregunta: ¿consigue Julia-1, desde pesos oficiales y con la mezcla E29 (tarea+replay), retener tarea y orden A LA VEZ? Criterios congelados ANTES (`docs/E34_CRITERIA_2026-10-11.md`, `f381940f`); proxy declarado (los train data de Julia no son públicos → muestra routing EXACTA de E29, 944 filas); parquete oficial por HF con sha verificado in-kernel. Contaminación mínima declarada. v1 ERROR por literal sha mal copiado (la guarda disparó como debía; fix `d80aee6f`); smoke CPU previo cazó un defecto real de K-mixto (slicing por fila). 30/30 épocas por semilla (techo exacto).
