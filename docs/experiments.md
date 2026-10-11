@@ -8,7 +8,7 @@ in `runs/**/run_report.json` and dataset manifests). Nothing here is projected.
 - La condición que a E29b le faltaba: muestra original NUEVA y disjunta (puestos 945-1888 del orden sha256; slice de tarea 301-600), congelada ANTES de poder conocer el desenlace. Todo lo demás idéntico (candidata hash-verificada, replay E28, 3×5 fases, optimizador fresco por fase).
 - **MIX@fase3: testC 0,9792 (≥0,90; MEJOR que E29b) Y testE-interp 0,9224 con 8/8 puros (≥0,90) → F1'' cumplido.** VE2 9/10. Tarea 0,7333 (mejor que 0,690 con la muestra original — la recuperación es robusta e incluso favorable a la muestra). E-extrap 0,750 (2/8) sigue siendo el número débil declarado de la familia.
 - **Lectura (i) pre-registrada: la receta de integración NO es específica de la muestra.** La línea E24→E30 cierra: orden adquirido (atajos excluidos por construcción) → replicado → integrado con replay (sin catástrofe) → formalizado (E29b) → **validado de forma independiente (E30)**.
-- Informe `runs/e30-analysis/` (+35 hashes), analizador versionado `scripts/e30_report.py`.
+- Informe `runs/e30-analysis/` (+35 hashes), analizador versionado `scripts/e30_report.py`. **Revisión (REVIEW_E30_2026-10-11.md): 6/6 afirmaciones confirmadas desde crudo + hallazgo de casi-invarianza conductual** — checkpoints y curvas byte-distintos de E29 (run genuinamente nuevo) pero evals de capacidad casi inmóviles (0-3 predicciones de cientos): el orden adquirido es profundamente estable ante gradientes de tarea diferentes.
 
 ## E29b — Criterio F1' en curriculum de 15 épocas (kernel mokka-typed-e29b v1) — COMPLETADO: **F1' cumplido por replicación determinista (criterio registrado tras observar E29 — formalización, no prueba independiente)**
 
