@@ -66,3 +66,6 @@ Dicho en claro: es la formalización pre-registrada de un punto ya observado, no
 - La validación del criterio F1' es formalización pre-registrada por replicación determinista, no prueba independiente (sección "Alcance de la validación").
 - Estado frente a Julia-1: ventaja no demostrada (−2,1 pp en su benchmark).
 - Tras E29b no hay nada automático en marcha. Las opciones abiertas son aceptar la versión, ajustar la mezcla, extender (más campos numéricos, otros operadores, escala) o congelar la línea y documentar.
+## Actualización E30 (2026-10-11): validación independiente
+
+Con una muestra original disjunta (congelada antes de conocer el desenlace), la integración cumple el mismo criterio: testC 0,979 · E-interp 0,922 (8/8 puros) · VE2 9/10 · tarea 0,733. La receta de integración no es específica de la muestra. E-extrap 0,750 (2/8) sigue siendo el número débil de la familia.
