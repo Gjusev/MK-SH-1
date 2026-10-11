@@ -493,7 +493,7 @@ def stage_baselines(bundle: Path, work: Path, config: str) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--stage", default="typed_e29b_integration",
+        "--stage", default="typed_e30_val",
         help="comma-separated stages: smoke,train,resume_test,eval,baselines",
     )
     parser.add_argument("--config", default="configs/train.yaml")  # bundle v1 carries pilot-budget data
@@ -3940,6 +3940,166 @@ def stage_typed_e29b_integration(bundle: Path, work: Path, config: str) -> None:
     log("e29_forget: done")
 
 
+
+
+def _find_e30_root(bundle: Path) -> Path:
+    for marker in bundle.rglob("e30-mix/manifest.json"):
+        return marker.parent
+    raise SystemExit("e30-mix manifest not found in bundle (e30-mix/manifest.json)")
+
+
+def stage_typed_e30_val(bundle: Path, work: Path, config: str) -> None:
+    """E30: INDEPENDENT integration validation - NEW DISJOINT original sample (frozen protocol E30_PROTOCOL_2026-10-11.md).
+
+    Identical to E29b (candidate, MIX arm, 3 phases x 5 epochs) with ONE change:
+    the original-task sample is NEW and DISJOINT (sha256(id) ranks 945-1888 /
+    task slice 301-600, per the e30-mix manifest) - the outcome was NOT
+    knowable at registration time. F1'' bars identical to F1.
+    """
+    import hashlib as _hashlib
+    import json as _json
+
+    import torch
+
+    if not torch.cuda.is_available():
+        raise SystemExit("typed_e29_forget needs the GPU that was not assigned")
+    hardware = _e25_hardware_report()
+    (work / "hardware.json").write_text(_json.dumps(hardware, indent=2), encoding="utf-8")
+    log(f"e29 hardware: {hardware}")
+    e29 = _find_e29_root(bundle)
+    e30 = _find_e30_root(bundle)
+    e28 = _find_e28_root(bundle)
+    e27 = _find_e27_root(bundle)
+    e26 = _find_e26_root(bundle)
+    manifest = _json.loads((e30 / "manifest.json").read_text(encoding="utf-8"))
+
+    ckpt = e29 / "e29-ckpts" / "e28_s43_final.safetensors"  # candidate ships in e29-mix; reused
+    got = _hashlib.sha256(ckpt.read_bytes()).hexdigest()
+    if got != _E29_CKPT_SHA:
+        raise SystemExit(f"e29: candidate checkpoint hash mismatch: {got}")
+    log("e29: candidate checkpoint verified against frozen literal")
+
+    def rows_with_ids(path, ids):
+        want = set(ids)
+        rows = [_json.loads(l) for l in Path(path).read_text(encoding="utf-8").splitlines() if l.strip()]
+        picked = [r for r in rows if r["id"] in want]
+        if len(picked) != len(want):
+            raise SystemExit(f"e29: id mismatch selecting {path}: {len(picked)}/{len(want)}")
+        return picked
+
+    orig_train = rows_with_ids(bundle / "data/processed/v1/instances/train.jsonl",
+                               manifest["original_train_ids"])
+    task_dev = rows_with_ids(bundle / "data/processed/v1/eval/dev_eval.jsonl",
+                             manifest["original_dev_ids"])
+    _, grid_cases, _ = _e24_cases_and_qtypes(e28 / "train_rows.jsonl")
+    _, dev_cases, _ = _e24_cases_and_qtypes(e26 / "dev_rows.jsonl")
+
+    def as_cases(rows):
+        from mokka_decisions.contracts import DecisionCase
+        return [DecisionCase.from_dict(r) for r in rows]
+
+    qtypes = {}
+    for rows in (orig_train, task_dev):
+        for r in rows:
+            qtypes[r["id"]] = r.get("question_type") or "choice"
+    eval_specs = (("known", e26, "test_c_rows.jsonl"), ("new", e26, "test_d_rows.jsonl"),
+                  ("mono", e26, "mono_rows.jsonl"), ("e", e27, "test_e_rows.jsonl"))
+    eval_cases = {}
+    for name, root, fname in eval_specs:
+        for r in [_json.loads(l) for l in (root / fname).read_text(encoding="utf-8").splitlines() if l.strip()]:
+            qtypes[r["id"]] = r["question_type"]
+        _, cases, _ = _e24_cases_and_qtypes(root / fname)
+        eval_cases[name] = cases
+    eval_cases["task"] = as_cases(task_dev)
+    for r in [_json.loads(l) for l in (e28 / "train_rows.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()] + \
+            [_json.loads(l) for l in (e26 / "dev_rows.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()]:
+        qtypes[r["id"]] = r["question_type"]
+    log(f"e29: orig={len(orig_train)} grid={len(grid_cases)} task_dev={len(task_dev)} "
+        f"evals={ {k: len(v) for k, v in eval_cases.items()} }")
+
+    from mokka_decisions.arch_julia import evaluate_julia_arch, make_seeded_julia_arch
+    from safetensors.torch import load_file, save_file
+    from transformers import AutoTokenizer
+
+    tokenizer = AutoTokenizer.from_pretrained("jhu-clsp/mmBERT-small")
+
+    def build_model():
+        model = make_seeded_julia_arch("jhu-clsp/mmBERT-small", seed=43)
+        model.load_state_dict(load_file(str(ckpt), device="cpu"), strict=True)
+        return model
+
+    def eval_all(model, device="cuda"):
+        out = {}
+        for name, cases in eval_cases.items():
+            ev = evaluate_julia_arch(model, tokenizer, cases, qtypes, device=device)
+            out[name] = {"n": ev["n"], "accuracy": ev["accuracy"]}
+        return out
+
+    def eval_files(model, arm_dir, device="cuda"):
+        arm_dir.mkdir(parents=True, exist_ok=True)
+        for name, cases in eval_cases.items():
+            ev = evaluate_julia_arch(model, tokenizer, cases, qtypes, device=device,
+                                     collect_rows=True)
+            (arm_dir / f"eval_{name}.jsonl").write_text(
+                "".join(_json.dumps(r, default=str) + "\n" for r in ev["rows"]), encoding="utf-8")
+
+    summary = {
+        "protocol": "docs/internal/E30_PROTOCOL_2026-10-11.md (frozen pre-launch)",
+        "objective": ("forgetting/integration: does E28-s43's comparison capability survive "
+                      "resumed training on the original tasks, with and without replay?"),
+        "arm": "MIX only, 3 phases x 5 epochs (E29 had 4; ORIG already measured)",
+        "phases": 4, "epochs_per_phase": 5,
+        "candidate_sha256": _E29_CKPT_SHA,
+        "hardware": hardware,
+        "baseline": None, "results": {"MIX": []},
+    }
+
+    # baseline (phase 0): candidate as-is, before ANY training
+    model = build_model().to("cuda")
+    summary["baseline"] = eval_all(model)
+    eval_files(model, work / "baseline")
+    save_file(dict(model.state_dict()), str(work / "candidate_initial.safetensors"),
+              metadata={"format": "pt"})
+    log(f"e29 baseline (candidate as-is): { {k: round(v['accuracy'], 4) for k, v in summary['baseline'].items()} }")
+    del model
+    torch.cuda.empty_cache()
+
+    def run_arm(tag, train_cases):
+        model = build_model()
+        arm_root = work / tag
+        arm_root.mkdir(parents=True, exist_ok=True)
+        for phase in range(1, 4):
+            phase_dir = arm_root / f"phase{phase}"
+            phase_dir.mkdir(parents=True, exist_ok=True)
+            res = _e25_train_loop(model, tokenizer, train_cases, dev_cases, qtypes,
+                                  phase_dir, seed=43, device="cuda",
+                                  epochs_max=5, eval_cases=eval_cases,
+                                  early_stop=False, dev_patience=None)
+            summary["results"][tag].append({"phase": phase,
+                                            "evals": res["evals"],
+                                            "final_train_acc": res["final_train_acc"],
+                                            "final_dev_acc": res["final_dev_acc"],
+                                            "effective_steps": res["effective_steps"],
+                                            "attempted_steps": res["attempted_steps"]})
+            log(f"e29 {tag} phase{phase}: train={res['final_train_acc']:.4f} "
+                f"numdev={res['final_dev_acc']:.4f} "
+                f"evals={ {k: round(v['accuracy'], 4) for k, v in res['evals'].items()} }")
+            (work / "run_status.json").write_text(
+                _json.dumps({"stage": "typed_e30_val", "arm": tag, "phase": phase}),
+                encoding="utf-8")
+        save_file(dict(model.state_dict()), str(arm_root / "final.safetensors"),
+                  metadata={"format": "pt"})
+        del model
+        torch.cuda.empty_cache()
+
+    mix_cases = as_cases(orig_train) + list(grid_cases)
+    run_arm("MIX", mix_cases)
+
+    (work / "e30_summary.json").write_text(_json.dumps(summary, indent=2, default=str),
+                                           encoding="utf-8")
+    log("e29_forget: done")
+
+
 TYPED_STAGES = {"typed_arms": stage_typed_arms, "typed_a1": stage_typed_a1,
           "typed_ord": stage_typed_ord, "typed_small_ord": stage_typed_small_ord,
           "typed_e15": stage_typed_e15, "typed_e15_seeds": stage_typed_e15_seeds,
@@ -3959,6 +4119,7 @@ TYPED_STAGES = {"typed_arms": stage_typed_arms, "typed_a1": stage_typed_a1,
           "typed_e28b_seeds": stage_typed_e28b_seeds,
           "typed_e29_forget": stage_typed_e29_forget,
           "typed_e29b_integration": stage_typed_e29b_integration,
+          "typed_e30_val": stage_typed_e30_val,
           # H2 (controlled, one variable): the dev curves were not saturated at
           # 4/8 epochs; extend epochs only — data/init/loss/seeds unchanged.
           "typed_ord2": lambda b, w, c: stage_typed_ord(b, w, c, epochs=6, out="base_ord6"),
