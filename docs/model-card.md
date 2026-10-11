@@ -78,7 +78,48 @@ the best calibration (ECE 0.005–0.011) and the lowest neural latency
   `docs/typed-decisions-protocol.md` and `runs/typed-decisions/` — a
   **different adaptation budget** (never trained on this format), reported as
   `zero_shot_domain_shift`, never as a like-for-like defeat or victory.
-  Adapted arms (equal data) are the next experiment.
+- Adapted same-data comparisons were run in the E24–E34 campaign — see the
+  numeric-order section below for the full three-context Julia tables.
+
+## Numeric-order capability (E24–E34 campaign, 2026-10-10/11)
+
+A second lineage (JuliaArch-small: mmBERT-small + marker head, ~140M) was
+taught to compare a state value against a question threshold (`value ≥ t`)
+without shortcuts, then integrated with original-task replay. Campaign
+record: `docs/experiments.md`; release notes:
+`docs/RELEASE_NOTES_E24-E29b.md`.
+
+**Validated version** = candidate E28-s43 (sha256 `75ea9eed…`, dev-patience
+trained on the 944-row dense grid) + 15 epochs of 944 original-task rows +
+944 grid replay (fresh optimizer per 5-epoch phase). Independent validation
+on a disjoint sample (E30) met the pre-registered F1″ criterion.
+
+| Metric (validated point) | Value | Reference |
+|---|---|---|
+| testC — order, known thresholds (n=48) | **0.958–0.979** | E29b/E30 |
+| testD — interpolation (n=54) | 0.926 (intact through integration) | E29 |
+| testE-interp — fresh 2-decimal OOD (n=116) | **0.922–0.931**, 8/8 pure pairs | E29b/E30 |
+| testE-extrap — fresh 2-decimal OOD (n=56) | **0.750–0.786**, 2–4/8 pairs — **the weak number, declared** | E29b |
+| Monotonicity VE2 (10 sweeps) | 9/10 | E29b/E30 |
+| Original task (routing, 300-row slice) | **0.690–0.733** (from 0.157 specialized) | E29/E30 |
+
+**Julia-1 context (all numbers from the single E32/E34 CPU-float32 harness,
+system comparisons — recipes differ, no architecture claims):**
+
+| Context | testC | E-interp | E-extrap | VE2 | Own task |
+|---|---|---|---|---|---|
+| Julia-1 zero-shot (official weights) | 0.563 | 0.552 | 0.500 | 0/10 | typed-2000 **0.7255** |
+| Julia-1 adapted, our grid (E32) | **1.000** | 0.961 | **0.911** | 7/10 | typed-2000 −13.6/−19.0 pp |
+| Julia-1 + replay (E34) | **1.000** | 0.940/0.983 | — | — | typed-2000 **−27.1/−23.5 pp**; proxy-task 0.83 |
+| Mokka integrated (E30-MIX) | 0.979 | 0.922 | 0.750 | **9/10** | routing **0.733** (recovered) |
+
+Declared reading: adapted Julia transfers numeric order better at the
+edges; the integrated Mokka version keeps monotonicity and its task. Replay
+gives Julia a proxy task + order simultaneously but degrades its own task
+*faster than no replay*. The trade-off refines by which task is at stake;
+neither system dominates.
+
+## Calibration & abstention
 
 ## Calibration & abstention
 
@@ -98,7 +139,12 @@ outside the declared scope. Choosing `none` is a decision; abstaining returns
   ambiguous by exact-name collision).
 - 77-way full-taxonomy decisions degrade vs fixed classifiers trained on the
   same labels (0.812 vs 0.872).
-- Not evaluated on boolean/ordinal typed-decision formats in this release.
+- Numeric-order capability: E-extrap after integration is the declared weak
+  number (0.750, 2/8 pure pairs); monotonicity 9/10 not 10/10; the Julia
+  comparisons are **system** comparisons (recipes differ) — no architecture
+  claim is made anywhere in this campaign.
+- The numeric-order lineage (JuliaArch-small) is not in the v0.1 release
+  package; it lives as campaign checkpoints under `runs/` (gitignored).
 
 ## Verdict
 
