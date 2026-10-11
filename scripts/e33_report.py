@@ -80,7 +80,8 @@ def main() -> int:
                     for name in ("known", "new", "mono", "e")}
         testc = sum(p["ok"] for p in percases["known"])
         thr_ok, thr_n = thr_pairs_global(list(percases.values()), meta)
-        ve2_ok, ve2_n = ve2([percases["e"], percases["mono"]], meta)
+        ve2_ok, ve2_n = ve2([percases["e"]], meta)  # registered: the 10 testE sweeps
+        mono_ok, mono_n = ve2([percases["mono"]], meta)  # descriptive extra
         devs = [c["dev_acc"] for c in curves]
         v1 = (len(set(devs)) >= 3) and (max(devs) >= 0.60)
         per_seed[seed] = {
@@ -92,8 +93,9 @@ def main() -> int:
             "J2_testC_ge_090": testc / len(percases["known"]) >= 0.90,
             "thr_pairs": [thr_ok, thr_n],
             "J3_thr_pairs_ge_075": thr_n > 0 and thr_ok / thr_n >= 0.75,
-            "VE2": [ve2_ok, ve2_n],
+            "VE2_testE": [ve2_ok, ve2_n],
             "J4_VE2_ge_080": ve2_n > 0 and ve2_ok / ve2_n >= 0.80,
+            "VE2_mono_hist_descriptive": [mono_ok, mono_n],
             "V1_live_dev": bool(v1),
             "eval_model": res["eval_model"],
             "evals_summary": res["evals"],
@@ -133,7 +135,7 @@ def main() -> int:
         p = per_seed[s]
         print(f"{s}: epochs={p['epochs']} train={p['final_train_acc']} dev={p['final_dev_acc']} "
               f"(max {p['dev_max']}, distinct {p['dev_values_distinct']}) testC={p['testC']} "
-              f"thr={p['thr_pairs']} VE2={p['VE2']} V1={p['V1_live_dev']}")
+              f"thr={p['thr_pairs']} VE2={p['VE2_testE']} V1={p['V1_live_dev']}")
     print(f"criteria: {report['criteria']}\nreading: {reading}")
     return 0
 
