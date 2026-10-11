@@ -3,6 +3,13 @@
 One row per executed experiment. Artifacts under `runs/` (gitignored; hashes
 in `runs/**/run_report.json` and dataset manifests). Nothing here is projected.
 
+## E31 — Fine-tune de JULIA-1 sobre nuestra rejilla, contraste mismo-dato (kernel mokka-typed-e31 v1) — COMPLETADO: **lectura (b) — Julia-1 memoriza sin orden; la combinación arquitectura+receta ES el diferenciador**
+
+- Julia-1 oficial (hash verificado; descargada de HF en kernel — enmienda de transporte declarada tras dos subidas muertas por uplink degradado), fine-tune sobre NUESTRA rejilla de 944 filas con receta espejo, semillas 42/43.
+- **J1 ajuste: SÍ (train 1,000 ambas; memorizado en épocas 6-9). J2-J4: TODO a azar exacto** — testC 0,583 (zero-shot 0,563: +2 pp de nada) · testD 0,519 · mono 0,500 · testE 0,530 · **pares solo-umbral 0/22 en total (idéntico al zero-shot: sigue sin leer el umbral)** · VE2 0/10 · regla misma-decena sobre Julia = 0,500 exacto (ni atajo: memorización por fila) · dev congelada en 0,5417 las 11 épocas · **ambas semillas convergen a predicciones IDÉNTICAS**.
+- **La claim queda decidida**: el mismo backbone mmBERT-small con NUESTRA JuliaArch + receta de cobertura densa adquiere orden real, replicado y robusto a integración (0,958-1,000 testC, 8-8/8-8 pares, 9-10/10 barridos); bajo la arquitectura de marcadores de Julia-1 con los MISMOS datos y optimización, memoriza y se queda en azar. La capacidad vive en la **combinación arquitectura+receta**, no solo en los datos. Ámbito declarado: una receta espejo (Julia podría responder con hiperparámetros propios — su receta nativa es privada).
+- Informe `runs/e31-analysis/` (+ hashes, pesos recogidos), analizador versionado `scripts/e31_report.py`. Cierre de la delegación: nada más lanzado.
+
 ## E30 — Validación INDEPENDIENTE de la integración, muestra disjunta (kernel mokka-typed-e30 v1) — COMPLETADO: **F1'' PASA — INTEGRACIÓN VALIDADA DE FORMA INDEPENDIENTE**
 
 - La condición que a E29b le faltaba: muestra original NUEVA y disjunta (puestos 945-1888 del orden sha256; slice de tarea 301-600), congelada ANTES de poder conocer el desenlace. Todo lo demás idéntico (candidata hash-verificada, replay E28, 3×5 fases, optimizador fresco por fase).
