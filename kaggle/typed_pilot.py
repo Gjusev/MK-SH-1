@@ -3121,10 +3121,21 @@ def stage_typed_e30_val(bundle: Path, work: Path, config: str) -> None:
     log("e29_forget: done")
 
 
-def _find_julia_src(bundle: Path) -> Path:
-    for marker in bundle.rglob("julia-src/julia/router/engine.py"):
-        return marker.parents[2]
-    raise SystemExit("julia-src not found in bundle (julia-src/julia/router/engine.py)")
+def _fetch_julia_src() -> Path:
+    """Download Julia-1 from HuggingFace (public) and verify the frozen weights hash.
+
+    Transport amendment (pre-launch, declared): the original plan shipped
+    julia-src in the bundle, but the local uplink degraded to ~0.15MB/s; the
+    kernel has internet, so it pulls the public snapshot at datacenter speed.
+    Same weights (sha256 verified against the same frozen literal), same engine.
+    """
+    import os as _os
+    _os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
+    from huggingface_hub import snapshot_download
+    js = Path(snapshot_download("SupersonicLabs/Julia-1"))
+    if not (js / "julia" / "router" / "engine.py").exists():
+        raise SystemExit(f"julia snapshot lacks the engine package: {js}")
+    return js
 
 
 _E31_JULIA_SHA = "df853bf7fe424420011f3d0c47a05d7341aa9eefa7fb9f203ea4aada4ad95b72"
@@ -3154,7 +3165,7 @@ def stage_typed_e31_julia(bundle: Path, work: Path, config: str) -> None:
     _subprocess.check_call([_sys.executable, "-m", "pip", "install", "-q",
                             "transformers==5.0.0"], env={**__import__("os").environ,
                                                           "PIP_CONFIG_FILE": "/dev/null"})
-    js = _find_julia_src(bundle)
+    js = _fetch_julia_src()
     got = _hashlib.sha256((js / "model.safetensors").read_bytes()).hexdigest()
     if got != _E31_JULIA_SHA:
         raise SystemExit(f"e31: Julia-1 weights hash mismatch: {got}")
