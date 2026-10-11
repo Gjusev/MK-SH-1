@@ -493,7 +493,7 @@ def stage_baselines(bundle: Path, work: Path, config: str) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--stage", default="typed_e31_julia",
+        "--stage", default="typed_e34_replay",
         help="comma-separated stages: smoke,train,resume_test,eval,baselines",
     )
     parser.add_argument("--config", default="configs/train.yaml")  # bundle v1 carries pilot-budget data
@@ -4304,6 +4304,293 @@ def stage_typed_e31_julia(bundle: Path, work: Path, config: str) -> None:
 
 
 
+_E34_JULIA_SHA = "df853bf7fe424420011f3d0c47a05d7341aa9eefa7fb9f203ea4aada4ad95b72"
+_E34_DATASET_SHA = "4f294f218ea1da27f3efef936359389c62ea4d3973a41457732990f1d31b647c6"
+_E34_DATASET_REV = "c76749ec58bd8c3d2ea706b31c333a9059c38f90"
+
+
+def _e34_fetch_parquet() -> Path:
+    """Official typed-2000 parquet via HF dataset transport (pinned revision +
+    sha256 verified in-kernel) — same declared amendment as the weights."""
+    import os as _os
+
+    _os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
+    from huggingface_hub import hf_hub_download
+
+    p = Path(hf_hub_download(repo_id="LocalLLaMA/typed-decisions", repo_type="dataset",
+                             filename="all/test-00000-of-00001.parquet",
+                             revision=_E34_DATASET_REV))
+    import hashlib as _hashlib
+
+    got = _hashlib.sha256(p.read_bytes()).hexdigest()
+    if got != _E34_DATASET_SHA:
+        raise SystemExit(f"e34: typed-2000 parquet hash mismatch: {got}")
+    log("e34: official typed-2000 parquet verified against frozen literal")
+    return p
+
+
+def stage_typed_e34_replay(bundle: Path, work: Path, config: str) -> None:
+    """E34: replay for adapted Julia (frozen protocol docs/E34_CRITERIA_2026-10-11.md).
+
+    Mirror of E29b's integration under the Julia recipe: from OFFICIAL Julia-1
+    weights, phase 1 acquires order on the 944-row grid (cap 15 epochs,
+    dev-patience-10 on the TRAINED model), then 3x5 FIXED mix phases (944
+    routing rows = the EXACT E29 sample + 944 grid replay; fresh optimizer per
+    phase). Proxy task declared (Julia's original training data is not public).
+    Corrected pipeline mandatory: every dev/eval call runs the trained engine,
+    guards asserted per seed, eval_model hash at EVERY checkpoint
+    (t0/post-phase1/post-mix1..3). Retention read on the E29/E30 task slices
+    (primary) and the official 2000 (descriptive). Single execution, no retries.
+    """
+    import hashlib as _hashlib
+    import json as _json
+    import random as _random
+    import subprocess as _subprocess
+    import sys as _sys
+    import time as _time
+
+    import torch
+
+    if not torch.cuda.is_available():
+        raise SystemExit("typed_e34_replay needs the GPU that was not assigned")
+    _subprocess.check_call([_sys.executable, "-m", "pip", "install", "-q",
+                            "transformers==5.0.0"], env={**__import__("os").environ,
+                                                          "PIP_CONFIG_FILE": "/dev/null"})
+    js = _fetch_julia_src()
+    got = _hashlib.sha256((js / "model.safetensors").read_bytes()).hexdigest()
+    if got != _E34_JULIA_SHA:
+        raise SystemExit(f"e34: Julia-1 weights hash mismatch: {got}")
+    log("e34: Julia-1 weights verified against frozen literal")
+    _sys.path.insert(0, str(js))
+    from julia.router.engine import FastEngine
+
+    e26 = _find_e26_root(bundle)
+    e27 = _find_e27_root(bundle)
+    e28 = _find_e28_root(bundle)
+    e29 = _find_e29_root(bundle)
+
+    def rows_with_ids(path, ids):
+        want = set(ids)
+        rows = [_json.loads(l) for l in Path(path).read_text(encoding="utf-8").splitlines() if l.strip()]
+        picked = [r for r in rows if r["id"] in want]
+        if len(picked) != len(want):
+            raise SystemExit(f"e34: id mismatch selecting {path}: {len(picked)}/{len(want)}")
+        return picked
+
+    man29 = _json.loads((e29 / "manifest.json").read_text(encoding="utf-8"))
+    man30 = _json.loads((_find_e30_root(bundle) / "manifest.json").read_text(encoding="utf-8"))
+    grid_rows = [_json.loads(l) for l in (e28 / "train_rows.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()]
+    dev_rows = [_json.loads(l) for l in (e26 / "dev_rows.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()]
+    routing_rows = rows_with_ids(bundle / "data/processed/v1/instances/train.jsonl",
+                                 man29["original_train_ids"])
+    task29 = rows_with_ids(bundle / "data/processed/v1/eval/dev_eval.jsonl",
+                           man29["original_dev_ids"])
+    task30 = rows_with_ids(bundle / "data/processed/v1/eval/dev_eval.jsonl",
+                           man30["original_dev_ids"])
+    eval_rows = {name: [_json.loads(l) for l in (root / fname).read_text(encoding="utf-8").splitlines() if l.strip()]
+                 for name, root, fname in (("known", e26, "test_c_rows.jsonl"),
+                                           ("new", e26, "test_d_rows.jsonl"),
+                                           ("mono", e26, "mono_rows.jsonl"),
+                                           ("e", e27, "test_e_rows.jsonl"))}
+    parquet = _e34_fetch_parquet()
+    import pyarrow.parquet as _pq
+
+    typed2000 = []
+    for case in _pq.read_table(parquet).to_pylist():
+        state = _json.loads(case["state"])
+        gold = _json.loads(case["gold"])
+        for qid, q in _json.loads(case["questions"]).items():
+            kind = q["type"]
+            crit = q.get("criteria")
+            if crit is None and kind == "noul":
+                crit = {"false": "false", "true": "true"}
+            if isinstance(crit, list):
+                crit = {str(i): v for i, v in enumerate(crit)}
+            keys = ["false", "true"] if kind == "noul" else list(crit)
+            typed2000.append({"id": f"{case['id']}:{qid}", "type": kind, "keys": keys,
+                              "gold": keys.index(str(gold[qid]["label"])),
+                              "options": [crit[k] for k in keys],
+                              "state": state, "question": q["instructions"]})
+    assert len(typed2000) == 2000, len(typed2000)
+
+    def num_payload(r):
+        return dict(state=_json.loads(r["state"]), question=r["question"],
+                    type="noul", options=["No", "Yes"])
+
+    def num_gold(r):
+        return int(r["target_option"] == "true")
+
+    def task_payload(r):
+        return dict(state=r["state"], question=r["question"], type="choice",
+                    options=[o["description"] for o in r["options"]])
+
+    def task_gold(r):
+        return next(i for i, o in enumerate(r["options"]) if o["id"] == r["target_option"])
+
+    def t2k_payload(r):
+        return dict(state=r["state"], question=r["question"], type=r["type"], options=r["options"])
+
+    # sets: payload builder + gold + rows, per eval set
+    sets = [("known", num_payload, num_gold, eval_rows["known"]),
+            ("new", num_payload, num_gold, eval_rows["new"]),
+            ("mono", num_payload, num_gold, eval_rows["mono"]),
+            ("e", num_payload, num_gold, eval_rows["e"]),
+            ("task29", task_payload, task_gold, task29),
+            ("task30", task_payload, task_gold, task30),
+            ("typed2000", t2k_payload, lambda r: r["gold"], typed2000)]
+    dev_payload = [num_payload(r) for r in dev_rows]
+    dev_gold = [num_gold(r) for r in dev_rows]
+    mix_rows = routing_rows + grid_rows
+    mix_payload = [task_payload(r) for r in routing_rows] + [num_payload(r) for r in grid_rows]
+    mix_gold = [task_gold(r) for r in routing_rows] + [num_gold(r) for r in grid_rows]
+    log(f"e34: grid={len(grid_rows)} routing={len(routing_rows)} mix={len(mix_rows)} "
+        f"dev={len(dev_rows)} evals={ {n: len(r) for n, _, _, r in sets} }")
+
+    def evaluate(eval_engine, payload, gold, ids):
+        correct, percase = 0, []
+        eval_engine.model.eval()
+        with torch.inference_mode():
+            for i in range(0, len(payload), 16):
+                for ans, g, rid in zip(eval_engine.predict(payload[i:i + 16]),
+                                       gold[i:i + 16], ids[i:i + 16]):
+                    ok = int(ans["index"] == g)
+                    correct += ok
+                    percase.append({"id": rid, "pred": int(ans["index"]), "gold": int(g), "ok": ok})
+        return correct / len(payload), percase
+
+    def eval_checkpoint(engine, model, seed_dir, tag, history_rows):
+        _hash = _hashlib.sha256()
+        for _k in sorted(model.state_dict()):
+            _t = model.state_dict()[_k].detach().to(torch.float32).cpu().contiguous()
+            _hash.update(_k.encode("utf-8"))
+            _hash.update(_t.numpy().tobytes())
+        out = {"tag": tag,
+               "eval_model": {
+                   "binding": "run_seed local engine (engine.model); guards asserted: "
+                              "engine.model is model and engine.forward is engine.model",
+                   "weights_sha256_kind": "in-memory state_dict, sorted keys (key bytes + "
+                                          "float32-canonicalized tensor bytes) - hash of the "
+                                          "weights AT EVAL TIME",
+                   "eval_weights_sha256": _hash.hexdigest()},
+               "sets": {}}
+        for name, pbuild, gbuild, rows in sets:
+            payload = [pbuild(r) for r in rows]
+            gold = [gbuild(r) for r in rows]
+            acc, percase = evaluate(engine, payload, gold, [r["id"] for r in rows])
+            out["sets"][name] = {"n": len(rows), "correct": int(round(acc * len(rows))),
+                                 "accuracy": round(acc, 4)}
+            (seed_dir / f"eval_{name}__{tag}.jsonl").write_text(
+                "".join(_json.dumps(r) + "\n" for r in percase), encoding="utf-8")
+        return out
+
+    def train_epochs(engine, model, payload, gold, epochs, seed, phase, cap):
+        """Julia-recipe epochs (E31 mirror): AdamW 2e-5, wd .01, warmup 5%,
+        clip 1.0, fp16+GradScaler, eff. batch 32 = 4x8; fresh optimizer per call."""
+        model.train()
+        opt = torch.optim.AdamW(model.parameters(), lr=2e-5, weight_decay=0.01)
+        scaler = torch.amp.GradScaler("cuda")
+        encoded = engine._encode(payload)
+        rng = _random.Random(seed ^ 0xE34 ^ phase)
+        spe = (len(encoded) + 31) // 32
+        total = max(spe * epochs, 1)
+        warmup = max(int(total * 0.05), 1)
+
+        def lr_lambda(step):
+            if step < warmup:
+                return step / warmup
+            p = (step - warmup) / max(total - warmup, 1)
+            return max(0.05, 0.95 * (1 - p) + 0.05)
+
+        sched = torch.optim.lr_scheduler.LambdaLR(opt, lr_lambda)
+        hist = []
+        for epoch in range(epochs):
+            order = list(range(len(encoded)))
+            rng.shuffle(order)
+            tr_correct = tr_seen = 0
+            for cs in range(0, len(order), 8):
+                idx = order[cs:cs + 8]
+                batch = engine._pack([encoded[i] for i in idx])
+                with torch.autocast("cuda", dtype=torch.float16):
+                    values = model(**batch)
+                    mask = batch["marker_mask"]
+                    flat = values[mask]  # mixed-K batches: slice per row
+                    counts = mask.sum(dim=1)
+                    row_losses, off, hits = [], 0, 0
+                    for bi, gi in enumerate(idx):
+                        k = int(counts[bi])
+                        row_logits = flat[off:off + k].unsqueeze(0)
+                        off += k
+                        g = torch.tensor([gold[gi]], device=flat.device)
+                        row_losses.append(torch.nn.functional.cross_entropy(row_logits, g))
+                        hits += int(row_logits.argmax(-1).item() == gold[gi])
+                    loss = torch.stack(row_losses).mean() / 4
+                scaler.scale(loss).backward()
+                tr_correct += hits
+                tr_seen += len(idx)
+                if (cs // 8 + 1) % 4 == 0 or cs + 8 >= len(order):
+                    scaler.unscale_(opt)
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                    scaler.step(opt)
+                    scaler.update()
+                    sched.step()
+                    opt.zero_grad(set_to_none=True)
+            model.eval()
+            dev_acc, _ = evaluate(engine, dev_payload, dev_gold, [r["id"] for r in dev_rows])
+            model.train()
+            hist.append({"phase": phase, "epoch": epoch, "cap": cap,
+                         "train_acc": round(tr_correct / tr_seen, 4),
+                         "dev_acc": round(dev_acc, 4)})
+            log(f"e34 s{seed} {phase} epoch={epoch} train={tr_correct / tr_seen:.4f} dev={dev_acc:.4f}")
+        return hist
+
+    summary = {"protocol": "docs/E34_CRITERIA_2026-10-11.md (frozen pre-launch)",
+               "subject": "Julia-1 official weights + E29-mirror integration (proxy task)",
+               "julia_sha256": _E34_JULIA_SHA, "dataset_sha256": _E34_DATASET_SHA,
+               "results": {}}
+    for seed in (42, 43):
+        t0 = _time.time()
+        seed_dir = work / f"s{seed}"
+        seed_dir.mkdir(parents=True, exist_ok=True)
+        engine = FastEngine(str(js), device="cuda", transformer_backend="torch",
+                            strict_encoding=True, max_length=1024, head_length=512,
+                            batch_size=8, marker_only_head=False)
+        model = engine.model
+        assert engine.model is model and engine.forward is engine.model, (
+            "e34: eval engine/model link broken - weight identity would not cover inference")
+        history, ckpts = [], []
+        ckpts.append(eval_checkpoint(engine, model, seed_dir, "t0", []))
+        # phase 1: numeric acquisition (cap 15, patience 10 on the TRAINED model)
+        ph1 = train_epochs(engine, model, [num_payload(r) for r in grid_rows],
+                           [num_gold(r) for r in grid_rows], epochs=15, seed=seed,
+                           phase=1, cap="p1")
+        history.extend(ph1)
+        ckpts.append(eval_checkpoint(engine, model, seed_dir, "post_p1", []))
+        # phases 2-4: fixed 5-epoch mix (routing + grid replay), fresh optimizer each
+        for ph in (2, 3, 4):
+            history.extend(train_epochs(engine, model, mix_payload, mix_gold,
+                                        epochs=5, seed=seed, phase=ph, cap=f"mix{ph - 1}"))
+            ckpts.append(eval_checkpoint(engine, model, seed_dir, f"post_mix{ph - 1}", []))
+        assert len(history) <= 30, f"budget ceiling exceeded: {len(history)} epochs"
+        (seed_dir / "curves.jsonl").write_text(
+            "".join(_json.dumps(h) + "\n" for h in history), encoding="utf-8")
+        from safetensors.torch import save_file as _save
+
+        _save(dict(model.state_dict()), str(seed_dir / "final.safetensors"),
+              metadata={"format": "pt"})
+        summary["results"][f"s{seed}"] = {
+            "epochs_total": len(history),
+            "history": history,
+            "checkpoints": ckpts,
+            "wall_s": round(_time.time() - t0, 1)}
+        log(f"e34 s{seed}: done in {_time.time() - t0:.0f}s - final "
+            f"{ {k: v['accuracy'] for k, v in ckpts[-1]['sets'].items()} }")
+        del model, engine
+        torch.cuda.empty_cache()
+    (work / "e34_summary.json").write_text(_json.dumps(summary, indent=2, default=str),
+                                           encoding="utf-8")
+    log("e34_replay: done")
+
+
 TYPED_STAGES = {"typed_arms": stage_typed_arms, "typed_a1": stage_typed_a1,
           "typed_ord": stage_typed_ord, "typed_small_ord": stage_typed_small_ord,
           "typed_e15": stage_typed_e15, "typed_e15_seeds": stage_typed_e15_seeds,
@@ -4316,6 +4603,7 @@ TYPED_STAGES = {"typed_arms": stage_typed_arms, "typed_a1": stage_typed_a1,
           "typed_e24_fit": stage_typed_e24_fit,
           "typed_e25_thrvar": stage_typed_e25_thrvar,
           "typed_e26_order": stage_typed_e26_order,
+          "typed_e34_replay": stage_typed_e34_replay,
           "typed_e26b_diag": stage_typed_e26b_diag,
           "typed_e26c_seeds": stage_typed_e26c_seeds,
           "typed_e27_grid": stage_typed_e27_grid,
