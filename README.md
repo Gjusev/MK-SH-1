@@ -6,6 +6,8 @@ confidence is insufficient — an explicit abstention. This repository carries
 the full training/evaluation system plus an eleven-experiment research
 campaign (E24–E34, 2026-10-10/11) that taught it a capability it did not have
 and audited every step of that claim.
+Public model: **[Gjusev/mokka-1](https://huggingface.co/Gjusev/mokka-1)** —
+the validated numeric-order version (144M params, fp32 safetensors, Apache-2.0).
 
 **The surviving differentiator** (E32/E34, same CPU-float32 harness): the
 integrated MOKKA version holds a newly-acquired capability (numeric order)
