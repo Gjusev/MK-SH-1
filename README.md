@@ -48,7 +48,7 @@ flowchart LR
 
 ## Use cases
 
-https://github.com/user-attachments/assets/84fc36de-8b1f-4f83-bd22-d3632137dd42
+https://github.com/user-attachments/assets/3d763e7a-e697-44bc-adc2-d15d40d96ec3
 
 <p align="center"><sub>Illustrative scores through the shipped formula
 (softmax at the fitted temperature, gate at tau): question in, calibrated
