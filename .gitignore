@@ -65,3 +65,7 @@ data/
 
 # scratch bundle dirs
 kaggle-checkpoint-tmp/
+
+# local tooling + unembedded export variants
+.playwright-mcp/
+assets/comparison-dark.png
