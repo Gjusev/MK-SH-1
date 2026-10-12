@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/logo-mark.png" width="260" alt="MK-SH-1 mark: a whale shark in negative space between two tide bands"></p>
+
 # MK-SH-1
 
 A small open **decision model**: given a state, a question and a list of
@@ -26,6 +28,13 @@ options:  [ transaction_charged_twice: "The same transaction was charged twice"
 
 It is **not** a chat model and does not generate text for the decision. Each
 option is scored in one encoder pass; softmax runs over the valid options only.
+
+## The name
+
+The mark holds a whale shark in the negative space between two tide bands
+(the concept is called MAREA, Spanish for tide). It reads the way the model
+works: the shape appears where the bands part, as a decision appears when a
+value crosses a threshold line. MK-SH-1 is the first model of the MK family.
 
 ## The decision contract
 
