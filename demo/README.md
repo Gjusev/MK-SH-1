@@ -9,12 +9,12 @@ pinned: false
 license: apache-2.0
 ---
 
-# MK-SH-1 demo — calibrated numeric decisions with abstention
+# MK-SH-1 demo: calibrated numeric decisions with abstention
 
 Interactive demo of **[Gjusev/MK-SH-1](https://huggingface.co/Gjusev/MK-SH-1)**
-(v1.2): a free-form state + a numeric threshold → **calibrated probabilities**,
-a **choice**, and — when confidence is below the validated threshold — an
-explicit **abstention with reason_code**.
+(v1.2): a free-form state and a numeric threshold give calibrated
+probabilities, a choice, and, when confidence falls below the validated
+threshold, an explicit abstention with its reason code.
 
 **Canonical source:** [`demo/` in github.com/Gjusev/MK-SH-1](https://github.com/Gjusev/MK-SH-1/tree/main/demo)
 (this Space holds a copy, pushed by `scripts/push_space.py` — the repo is the
