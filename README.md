@@ -124,32 +124,19 @@ kept here because it is the shortest honest answer to "what is different?"
 
 ## Rigor: the correction that defines this repository
 
-The E31 story is told in full because it is the point, not an embarrassment:
-
-1. **The bug.** The E31 stage fine-tuned Julia-1 on our 944-row grid, but its
-   evaluator closed over a stage-scope engine holding the *original* weights.
-   Dev-based stopping and all test evals measured the wrong model
-   (`invalid_model_binding`). The closure claimed "Julia memorizes without
-   order; our architecture and recipe are the differentiator."
-2. **Detection and public retraction.** Supervisor review found the binding
-   defect. The claim was **withdrawn in public commits** (`3c03322e`,
-   `fcebac9f`), the corrective re-evaluation showed Julia-1 *does* acquire
-   order on our grid, and the frozen artifacts were left untouched with an
-   invalidation notice.
-3. **The regression that prevents recurrence.** `tests/test_e31_model_binding.py`
-   fails on the pre-fix source: the eval engine must be passed explicitly, the
-   inference-link guards are asserted (`engine.model is model`), and every
-   eval demands an at-eval-time in-memory weights hash, the identity of the
-   weights that actually produced each number.
-4. **The valid repetition.** E33 re-ran the protocol with the corrected
-   pipeline under pre-registered criteria plus a "live dev curve" validity
-   check, declaring the contamination honestly: the results were already
-   known from the corrective pass, so it validated the pipeline rather than
-   discovering anything.
-5. **The honest comparisons.** E32 (one CPU-float32 harness for both systems,
-   double-validated against frozen history) and E34 (replay portability) close
-   the comparison with every caveat visible. Recipes differ, so these are
-   **system comparisons, and no architecture claim is possible**.
+The E31 comparison first closed with a claim this repository then had to
+withdraw: its evaluator had silently scored the *original* weights instead of
+the fine-tuned ones (`invalid_model_binding`). The claim was retracted in
+public commits (`3c03322e`, `fcebac9f`), the corrective re-evaluation showed
+the reference model *does* acquire order on our grid, and the regression that
+prevents recurrence is permanent: `tests/test_e31_model_binding.py` fails on
+the pre-fix source, and every evaluation demands an at-eval-time weights hash
+— the identity of the weights that actually produced each number. E33 re-ran
+the corrected pipeline under pre-registered criteria; E32 and E34 close the
+comparison on one CPU-float32 harness with every caveat visible. Recipes
+differ, so these are **system comparisons, and no architecture claim is
+possible**. The full five-beat record lives in
+[`docs/experiments.md`](docs/experiments.md).
 
 ```mermaid
 flowchart TD
@@ -163,8 +150,7 @@ flowchart TD
 ```
 
 Criteria documents, frozen before each launch with verifiable commit order:
-`docs/E32_CRITERIA…` through `docs/E36_CRITERIA…`, plus the internal protocol
-family referenced from `docs/experiments.md`.
+`docs/E32_CRITERIA…` through `docs/E36_CRITERIA…`.
 
 ## What survives, what does not
 
