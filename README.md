@@ -127,14 +127,14 @@ correction integrated.
 
 | Beat | Experiments | Outcome | Key commits |
 |---|---|---|---|
-| Fit a numeric microset at all | E24 | Yes, 2/2 seeds in <60 steps | `f65bfb9f` `ca4644f4` |
-| Threshold variation teaches a shortcut, not order | E25, E26, E26b/c | Decade shortcut fits the same data; breaking it kills the pass; ceiling replicated across 6 seeds | `ab8061ee` `e175b757` `b4201d5e` |
-| Dense per-value coverage teaches real order | E27 | testC 0.979/1.000, transfers to fresh 2-decimal OOD; extrap + monotonicity declared weak | `aabab22a` `a9b2983d` |
-| Extremes alone fail; seed-checked | E28, E28b | Big moves but not in both seeds; interference reading honored | `0a9ac914` `f3e05cae` |
-| Replay protects; disjoint sample confirms | E29, E29b, E30 | No catastrophe; interference ~1/4 of no-replay; F1″ passes independently | `37d4fd01` `d5347639` |
-| The invalid closure and its repair | E31, E33 | Binding bug found, claim retracted publicly, pipeline re-run valid | `d72b3066` `752b8f3f` `d6b34eae` |
-| One-harness comparison, no architecture claims | E32, E34 | Julia transfers edges better but loses its own task faster with replay | `8d757b00` `f381940f` |
-| Edges cracked; calibrated + gated | E35, E36 | E-extrap 0.875/0.857, task 0.800/0.783; T = 7.653, tau = 0.79 at 90% coverage | `cd972b4f` `169358e7` |
+| Fit a numeric microset at all | E24 | Yes, 2/2 seeds in <60 steps | `282c1a2c` `a5cf32d7` |
+| Threshold variation teaches a shortcut, not order | E25, E26, E26b/c | Decade shortcut fits the same data; breaking it kills the pass; ceiling replicated across 6 seeds | `c4fcdebd` `4e519c73` `71d3497f` |
+| Dense per-value coverage teaches real order | E27 | testC 0.979/1.000, transfers to fresh 2-decimal OOD; extrap + monotonicity declared weak | `fed51a57` `8e009039` |
+| Extremes alone fail; seed-checked | E28, E28b | Big moves but not in both seeds; interference reading honored | `22862628` `0faebf6c` |
+| Replay protects; disjoint sample confirms | E29, E29b, E30 | No catastrophe; interference ~1/4 of no-replay; F1″ passes independently | `d51793e7` `6db1090d` |
+| The invalid closure and its repair | E31, E33 | Binding bug found, claim retracted publicly, pipeline re-run valid | `f89c3c3e` `3c03322e` `977c47b2` |
+| One-harness comparison, no architecture claims | E32, E34 | Julia transfers edges better but loses its own task faster with replay | `760bb997` `2922fab0` |
+| Edges cracked; calibrated + gated | E35, E36 | E-extrap 0.875/0.857, task 0.800/0.783; T = 7.653, tau = 0.79 at 90% coverage | `cf6cc3ba` `24d7fbc7` |
 
 ## The surviving differentiator (E32/E34, same CPU-float32 harness)
 
@@ -155,8 +155,8 @@ The E31 story is told in full because it is the point, not an embarrassment:
    (`invalid_model_binding`). The closure claimed "Julia memorizes without
    order; our architecture and recipe are the differentiator."
 2. **Detection and public retraction.** Supervisor review found the binding
-   defect. The claim was **withdrawn in public commits** (`752b8f3f`,
-   `1c2393c1`), the corrective re-evaluation showed Julia-1 *does* acquire
+   defect. The claim was **withdrawn in public commits** (`3c03322e`,
+   `fcebac9f`), the corrective re-evaluation showed Julia-1 *does* acquire
    order on our grid, and the frozen artifacts were left untouched with an
    invalidation notice.
 3. **The regression that prevents recurrence.** `tests/test_e31_model_binding.py`
@@ -178,7 +178,7 @@ The E31 story is told in full because it is the point, not an embarrassment:
 flowchart TD
     A["E31 closes: Julia memorizes, no order"] --> B["supervisor review"]
     B --> C["binding bug: evaluator scored the original weights"]
-    C --> D["public retraction (752b8f3f)"]
+    C --> D["public retraction (3c03322e)"]
     C --> E["corrective re-eval: Julia does acquire order"]
     D --> F["regression: at-eval-time weights hash"]
     E --> G["E33: valid re-run, pipeline proven"]

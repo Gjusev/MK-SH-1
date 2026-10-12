@@ -2,4 +2,4 @@ torch
 transformers==5.19.0
 safetensors
 huggingface_hub
-mokka-decisions @ git+https://github.com/Gjusev/MK-SH-1@583b2396
+mokka-decisions @ git+https://github.com/Gjusev/MK-SH-1@9aef3cc1
