@@ -48,7 +48,13 @@ flowchart LR
 
 ## Use cases
 
-<video src="https://github.com/Gjusev/MK-SH-1/releases/download/film-1/mksh-presentation.mp4" controls muted playsinline width="100%"></video>
+<p align="center">
+  <a href="https://github.com/Gjusev/MK-SH-1/releases/download/film-1/mksh-presentation.mp4">
+    <img src="assets/readme-film-poster.jpg" alt="MK-SH-1 presentation film — watch the 18-second cut" width="100%">
+  </a>
+</p>
+
+<p align="center"><sub>&#9654; the 18-second presentation cut &mdash; silent, light theme, the decision contract at work. Tap the frame to play.</sub></p>
 
 <p align="center"><sub>Illustrative scores through the shipped formula
 (softmax at the fitted temperature, gate at tau). The decision contract at
