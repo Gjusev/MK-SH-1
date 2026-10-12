@@ -133,12 +133,33 @@ DARK_BOOT = """() => {
   try { localStorage.setItem("gradio_theme", "dark"); } catch (_) {}
   document.documentElement.classList.add("dark");
   if (document.body) document.body.classList.add("dark");
-  // phantom 100px horizontal scroll on mobile: Gradio's cascade overrides the
-  // stylesheet rule, so set the clip inline where nothing can out-specify it
-  try {
-    document.documentElement.style.overflowX = "clip";
-    if (document.body) document.body.style.overflowX = "clip";
-  } catch (_) {}
+  // Mobile: Gradio renders body as flex, so .gradio-container is a flex item
+  // whose automatic min-width (min-content, inflated by the 1008px use-case
+  // lane) pins the page to ~490px on phones. Blocks css= selectors are scoped
+  // under .gradio-container... .contain and can never match html/body/main or
+  // the container itself, head= strips <style> and local <link> tags, and
+  // hydration wipes injected <style> nodes - but inline styles on body persist
+  // (proven by the clip below). So: block layout on phones, and release main
+  // the moment Gradio mounts it.
+  if (window.matchMedia && window.matchMedia("(max-width: 720px)").matches) {
+    // Gradio's runtime rewrites the container's style.cssText during hydration
+    // and layout, so inline fixes die; hydration also removes <style> nodes
+    // appended to head. A !important sheet wins over everything regardless of
+    // order - re-append it whenever it disappears, then stop after it sticks.
+    const css = "@media (max-width:720px){ html,body{overflow-x:clip!important} "
+      + "main{min-width:0!important;display:block!important} "
+      + ".gradio-container{min-width:0!important;max-width:100vw!important} }";
+    let n = 0;
+    const t = setInterval(() => {
+      if (![...document.styleSheets].some(s => s.ownerNode && s.ownerNode.dataset && s.ownerNode.dataset.mksh === "1")) {
+        const st = document.createElement("style");
+        st.dataset.mksh = "1";
+        st.textContent = css;
+        document.head.appendChild(st);
+      }
+      if (++n > 15) clearInterval(t);
+    }, 400);
+  }
 }"""
 
 CSS = """
@@ -232,10 +253,13 @@ html, body { background: #07101C !important; }
 @media (prefers-reduced-motion: reduce) { .rise { animation: none; opacity: 1; transform: none; } }
 
 @media (max-width: 720px) {
-  /* the internal lane swipe is the real scroller; clip kills the phantom
-     ~100px page-level horizontal scroll Gradio's tab wrappers otherwise add */
-  html, body { overflow-x: clip !important; }
+  /* the internal lane swipe is the real scroller; the page-level rules (html,
+     body, main) live in HEAD — css= selectors get scoped under
+     .gradio-container... .contain and can never match elements outside it */
   .gradio-container { padding: 28px 14px 48px !important; }
+  /* release Gradio's flex wrappers so the lane's min-content stops at the
+     scroller instead of inflating the page (main is handled in DARK_BOOT) */
+  .block, .column, .gap { min-width: 0 !important; }
   #hero { padding-left: 14px; }
   #hero .brand { gap: 12px; }
   #hero .brand img { width: 88px; height: 44px; }
