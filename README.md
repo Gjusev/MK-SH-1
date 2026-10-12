@@ -55,13 +55,16 @@ flowchart LR
 
 ## Use cases
 
-<video src="https://raw.githubusercontent.com/Gjusev/MK-SH-1/main/demo/usecases/mksh-triage.mp4" autoplay muted loop playsinline width="100%"></video>
+<p align="center">
+  <img src="demo/usecases/mksh-triage.gif" width="100%" alt="Silent looping MK-SH-1 support-triage decision flow">
+</p>
 
 <p align="center"><sub>Illustrative scores through the shipped formula
 (softmax at the fitted temperature, gate at tau). The decision contract at
 work: question in, calibrated probability out, refusal below the gate.
-Prefer a still? The [GIF](demo/usecases/mksh-triage.gif) and the
-[interactive demo](https://huggingface.co/spaces/Gjusev/MK-SH-1-demo) are both up.</sub></p>
+The animation autoplays silently on GitHub. Prefer the original? Open the
+[MP4](demo/usecases/mksh-triage.mp4) or try the
+[interactive demo](https://huggingface.co/spaces/Gjusev/MK-SH-1-demo).</sub></p>
 
 Each case names the measured capability it rests on, and where that
 measurement stops.
