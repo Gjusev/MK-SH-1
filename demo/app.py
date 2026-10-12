@@ -133,6 +133,12 @@ DARK_BOOT = """() => {
   try { localStorage.setItem("gradio_theme", "dark"); } catch (_) {}
   document.documentElement.classList.add("dark");
   if (document.body) document.body.classList.add("dark");
+  // phantom 100px horizontal scroll on mobile: Gradio's cascade overrides the
+  // stylesheet rule, so set the clip inline where nothing can out-specify it
+  try {
+    document.documentElement.style.overflowX = "clip";
+    if (document.body) document.body.style.overflowX = "clip";
+  } catch (_) {}
 }"""
 
 CSS = """
@@ -228,7 +234,7 @@ html, body { background: #07101C !important; }
 @media (max-width: 720px) {
   /* the internal lane swipe is the real scroller; clip kills the phantom
      ~100px page-level horizontal scroll Gradio's tab wrappers otherwise add */
-  html, body { overflow-x: clip; }
+  html, body { overflow-x: clip !important; }
   .gradio-container { padding: 28px 14px 48px !important; }
   #hero { padding-left: 14px; }
   #hero .brand { gap: 12px; }
