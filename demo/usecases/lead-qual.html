@@ -54,7 +54,7 @@ h2 { font-size: 15px; font-weight: 600; letter-spacing: 0.01em; text-transform: 
 .lane.accept .t, .lane.accept .n { color: var(--accept-ink); }
 #review-note { position: absolute; left: 12px; right: 12px; top: 268px;
   font-family: 'Geist Mono', monospace; font-size: 12px; line-height: 1.7;
-  color: var(--muted); z-index: 1; }
+  color: var(--muted); z-index: 1; transition: opacity 300ms ease; }
 #review-note .rc { color: var(--ink); }
 
 .ticket { position: absolute; left: 0; top: 0; padding: 10px 12px 9px;
@@ -148,10 +148,16 @@ const nodes = LEADS.map(t => {
   return { el, t, lane: 0, slot: 0 };
 });
 
+let laneCounts = [0, 0, 0, 0];
 function place(n) {
   n.el.style.width = (laneEls[0].offsetWidth - 22) + 'px';
   const x = laneEls[n.lane].offsetLeft + 11;
-  const y = n.lane === 3 ? 124 : 60 + n.slot * 112;
+  /* compress the stack so the last ticket always stays inside the 420px stage;
+     below tau=2 tickets the review note needs the lane clear down to y=268 */
+  const c = Math.max(laneCounts[n.lane], 1);
+  const room = n.lane === 3 && c <= 2 ? 108 : 260;
+  const gap = c > 1 ? Math.min(112, room / (c - 1)) : 112;
+  const y = 60 + n.slot * gap;
   n.el.style.transform = `translate(${x}px, ${y}px)`;
 }
 const used = { P: 0, N: 0, R: 0 };
@@ -171,6 +177,8 @@ function route() {
     n.el.querySelector('.vd').innerHTML = `=&gt; <b>${word}</b>`;
     order[n.t.lane].push(n);
   });
+  laneCounts = [0, order.P.length, order.N.length, order.R.length];
+  document.getElementById('review-note').style.opacity = order.R.length >= 3 ? 0 : 1;
   nodes.forEach(n => {
     n.lane = LANES[n.t.lane];
     n.slot = n.lane > 0 ? order[n.t.lane].indexOf(n) : 0;

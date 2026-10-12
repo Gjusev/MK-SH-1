@@ -141,10 +141,15 @@ const nodes = TICKETS.map(t => {
   return { el, t, lane: 0, slot: 0, p, said, word };
 });
 
+const laneTotal = { P: 0, N: 0, R: 0 };
+TICKETS.forEach(t => { if (laneTotal[t.lane] !== undefined) laneTotal[t.lane]++; });
 function place(n) {
   n.el.style.width = (laneEls[0].offsetWidth - 22) + 'px';
   const x = laneEls[n.lane].offsetLeft + 11;
-  const y = n.lane === 3 ? 124 : 60 + n.slot * 112;
+  /* compress the stack so the last ticket always stays inside the 420px stage */
+  const c = laneTotal[n.t.lane] || 1;
+  const gap = c > 1 ? Math.min(112, 260 / (c - 1)) : 112;
+  const y = 60 + n.slot * gap;
   n.el.style.transform = `translate(${x}px, ${y}px)`;
 }
 const used = { P: 0, N: 0, R: 0 };

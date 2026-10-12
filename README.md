@@ -55,7 +55,7 @@ flowchart LR
 
 ## Use cases
 
-https://github.com/user-attachments/assets/168e2de3-e95a-4f6e-a6b3-205e9c40a0dd
+https://github.com/user-attachments/assets/84fc36de-8b1f-4f83-bd22-d3632137dd42
 
 <p align="center"><sub>Illustrative scores through the shipped formula
 (softmax at the fitted temperature, gate at tau). The decision contract at

@@ -148,7 +148,7 @@ CSS = """
   --button-primary-background-fill: #8BBBF2; --button-primary-text-color: #07101C;
 }
 html, body { background: #07101C !important; }
-.gradio-container { max-width: 1080px; margin: 0 auto; padding: 56px 24px 72px !important;
+.gradio-container { max-width: 1440px; margin: 0 auto; padding: 56px 24px 72px !important;
   background: #07101C; font-family: 'Geist', system-ui, sans-serif; color: #EAF2FF; }
 .gradio-container .footer, .footer { display: none !important; }
 #hero { border-left: 2px solid #7AA9E6; padding-left: 20px; }
@@ -199,7 +199,7 @@ html, body { background: #07101C !important; }
 
 .vignette-scroll { width: 100%; overflow-x: auto; overflow-y: hidden; border: 1px solid #24415F;
   border-radius: 12px; background: #07101C; scrollbar-color: #5F97D3 #0C1827; }
-.vignette { display: block; width: 1008px; min-width: 1008px; height: 700px; margin: 0 auto;
+.vignette { display: block; width: 100%; min-width: 1008px; height: 700px; margin: 0 auto;
   border: none; background: #07101C; }
 .usecase-intro { color: #B4C8DE; font-size: 15px; line-height: 1.6; margin: -2px 0 14px; max-width: 720px; }
 .swipehint { display: none; color: #B4C8DE; font-family: 'Geist Mono', monospace;
@@ -309,18 +309,29 @@ def build():
                                 'title="MK-SH-1 use case vignette" loading="lazy" scrolling="no"></iframe>'
                                 '</div><p class="swipehint">Swipe horizontally to inspect every lane at full, readable size.</p>')
         with gr.Column(elem_classes=["panel", "rise", "d1"]):
-            gr.HTML('<span class="kicker">Live decision lab</span>')
+            gr.HTML('<span class="kicker">Live decision lab</span>'
+                    '<p class="usecase-intro">Every value below comes from the shipped formula: '
+                    'the encoder scores each option in one pass, softmax at T = 7.653 turns the '
+                    'scores into calibrated probabilities, and the frozen gate at tau = 0.79 sends '
+                    'anything below it to review instead of answering.</p>')
             state = gr.Textbox(
                 label="State, as JSON (the value lives in motor_temp_c)",
+                info="The state the model reads. In this lab only the motor_temp_c field matters.",
                 value=EXAMPLES[0][0], lines=3)
             threshold = gr.Number(
                 label="Threshold t, in degrees (question: is the reading at least t?)",
+                info="The question's tide line. Changing it re-runs the decision.",
                 value=37.43)
             run = gr.Button("Run decision", variant="primary")
-            out_probs = gr.HTML('<div class="q-asked">Calibrated probabilities appear here '
-                                'after you run a decision.</div>')
-            out_verdict = gr.HTML('<div class="q-asked">The choice, or the refusal with its '
-                                  'reason code, appears here.</div>')
+            out_probs = gr.HTML('<div class="q-asked">After you run a decision: <b>p(No)</b> and '
+                                '<b>p(Yes)</b> — the calibrated probabilities softmax(logits / T = 7.653). '
+                                'They sum to 1; the larger one is the confidence the gate compares '
+                                'against tau.</div>')
+            out_verdict = gr.HTML('<div class="q-asked">The decision: the winning option as '
+                                  '<b>choice</b>, or <b>null</b> with reason_code '
+                                  '<span class="code">below_validated_threshold</span> when the '
+                                  'confidence sits below tau = 0.79. The rule check underneath '
+                                  'compares it with the answer computable from the state.</div>')
             out_question = gr.HTML("")
             run.click(decide, inputs=[state, threshold],
                       outputs=[out_probs, out_verdict, out_question], api_name="decide")
