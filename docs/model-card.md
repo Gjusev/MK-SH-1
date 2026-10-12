@@ -1,192 +1,188 @@
-# Model card — mokka-decisions OptionScorer v0.1.0
+<!-- Local mirror of the Hugging Face model card (https://huggingface.co/Gjusev/MK-SH-1). The HF card is canonical; update there first and re-sync this file. -->
 
-Release: `release/mokka-decisions-v0.1.0` (self-contained; offline-verified in a
-fresh process with an empty HF cache and `HF_HUB_OFFLINE=1`).
+<table><tr>
+<td><img src="logo-mark.png" width="120" alt="MK-SH-1 mark: a whale shark in negative space between two tide bands"></td>
+<td><h1>MK-SH-1</h1><p><sub>a 140M decision model: calibrated probabilities, a choice, and a refusal below the gate</sub></p></td>
+</tr></table>
 
-## Model
+A decision model of about 140M parameters that answers typed questions over
+a described state: given a state, a question and a list of options, it
+returns calibrated probabilities, a choice, and an explicit abstention when
+confidence is insufficient. Its differentiating capability is numeric order:
+it compares a value in the state against a threshold stated in the question
+(`value >= t`), verified free of shortcuts by construction, taught and
+validated in a twelve-experiment campaign with pre-registered criteria, and
+held alongside the original task through replay-mixing integration.
 
-- **Architecture**: option scorer over a multilingual encoder. Every option of
-  a decision is encoded as the pair `(state, question + " Option: " +
-  description)` with **shared** encoder and head weights; a scalar score per
-  option; softmax restricted to the valid options. No per-option parameters,
-  no label-id embeddings — the model scores option sets it never saw.
-- **Encoder (inherited)**: `jhu-clsp/mmBERT-base` (307M params, ModernBERT),
-  pretrained by JHU CLSP; **fine-tuned by this project** jointly with the new
-  head (1,575 steps, 3 epochs, best epoch by dev).
-- **Trained by this project**: scoring head, objective, candidate-set data
-  construction, temperature calibration (T = 2.349 on 4,088 held-out cases),
-  abstention policy (threshold 0.300 on 4,280 held-out cases).
-- **Not claimed**: pretraining from scratch; general decision ability beyond
-  the evaluated scenarios; typed decisions (see benchmark note below).
+The published weights were trained in experiment E35 (sha256 `ea66cdde…`,
+criteria frozen before every launch). Calibration and the abstention policy
+were added afterwards in experiment E36, fitted on a dedicated held-out
+split, without touching a single weight. `inference-policy.json` in this repo
+carries the full policy: one global temperature, the gate, and the response
+semantics.
 
-## Training data
+Interactive demo: [Gjusev/MK-SH-1-demo](https://huggingface.co/spaces/Gjusev/MK-SH-1-demo)
+(Gradio, CPU). Give it a state and a threshold and watch the calibrated
+probabilities, the choice, and the abstention with its reason code. Three
+interactive use-case interfaces (support triage, lead qualification, stock
+alerts) sit above the live lab in the Space.
 
-BANKING77 (EN) + MASSIVE 1.0 (EN/DE/ES) + CLINC150/OOS (EN) as candidate-set
-decisions with a shared `none` option; official test pools untouched; splits
-by semantic group before expansion (leakage guards active; 7 exact train/test
-duplicates in BANKING77 excluded from the train side). Full provenance:
-`docs/dataset-card.md`, manifest hashes in the release.
+## What it is for
 
-Recipe: `configs/train.yaml` (16,784 instances, eff. batch 32, LR 2e-5/1e-4,
-fp16, seed 42); run report and per-epoch history in `runs/**/run_report.json`.
+Each case names the measured capability it rests on, and where that
+measurement stops.
 
-## Measured results (official test, full budgets, metrics v2)
+1. **Threshold routing.** "Is the value at least the threshold stated in the
+   question": limits, eligibility checks, price or risk cutoffs. Rests on
+   numeric order measured at testC 0.979 and E-extrap 0.875 on fresh extreme
+   thresholds. Bound: validated on the English numeric-comparison contract
+   (motor-temperature style states); not a general numeric reasoner.
+2. **Calibrated scoring with a safety valve.** ECE 0.016 on the dedicated
+   split (E36) plus abstention at tau = 0.79: 90 % coverage with 4.86 %
+   selective risk, +2.85 pp accuracy on the cases the policy keeps. Suited
+   to decision queues where refusals go to human review. Bound: the policy
+   was fitted on the numeric surface; routing probabilities inherit the same
+   global temperature (measured descriptively).
+3. **CPU and edge inference.** 106 ms per question at batch 1 on 8 CPU
+   threads, fp32 (E22 v3). Bound: a tie with the Julia-1 reference at batch 1
+   and 5 to 10 % behind at batch 16; the earlier 1.35x speed claim is
+   retracted.
+4. **A methodological template.** Dense anti-shortcut grid, replay
+   integration (E29/E30), replay-protected extremes (E35), calibration on a
+   frozen split (E36). Bound: one capability, one model family, demonstrated
+   at 140M scale; not claimed beyond what the campaign measured.
 
-Candidate sets contain the gold option **by construction** (selection, not
-recall). Fixed threshold policy fitted on calibration data only.
+## Measured capability
 
-| Scenario | n | Forced acc | Macro-F1 | NLL | Brier(multiclass) | ECE | Cov@thr | Risk@thr |
-|---|---|---|---|---|---|---|---|---|
-| banking candidates (K=6) | 1,000 | **0.986** | 0.985 | 0.049 | 0.023 | 0.010 | 1.000 | 0.014 |
-| massive candidates (en/de/es) | 1,500 | **0.969** | 0.937 | 0.095 | 0.049 | 0.011 | 0.999 | 0.031 |
-| clinc candidates (K=6) | 800 | **0.978** | 0.975 | 0.067 | 0.034 | 0.005 | 1.000 | 0.023 |
-| banking full 77-way | 1,000 | 0.812 | 0.808 | 0.633 | 0.271 | 0.028 | 0.972 | 0.174 |
-| clinc OOS (gold none) | 400 | 0.933 | — | 0.252 | 0.116 | 0.036 | 1.000 | 0.068 |
-| cross-domain probe (de/es) | 400 | 0.785 | — | 0.861 | 0.389 | 0.150 | 0.968 | 0.215 |
+| Metric | Value |
+|---|---|
+| Numeric order, known thresholds (testC, n=48) | 0.979 |
+| Interpolation, historical thresholds (testD, n=54) | 0.963 |
+| Fresh 2-decimal OOD, interior (testE-interp, n=116) | 0.914, 8/8 pairs |
+| Fresh 2-decimal OOD, extremes (testE-extrap, n=56) | 0.875, 7/8 pairs |
+| Monotonicity sweeps (VE2, 10 sweeps) | 8/10 |
+| Original task (routing, 300-row slice) | 0.800 |
 
-Per language (massive candidates): de 0.967 / en 0.968 / es 0.971 — no weak
-language hidden in the average. Option-order permutation: **0 flips / 500**.
-Latency (T4, batch=1, K=6): p50 22–26 ms; 78-option decisions: p50 318 ms.
+The temperature is monotone: it changes no choices, so accuracy is identical
+by construction and only the confidences move. Verified mechanically, case
+by case, on every evaluation set. The local CPU harness also reproduced the
+frozen E35 Kaggle per-case choices exactly (664/664 across all five sets).
 
-Comparators on identical IDs/options (full table in the evaluation protocol;
-rows and per-backend policies in `runs/final-report/`):
+## Calibration & abstention (v1.2, experiment E36)
 
-- **TF-IDF+LR closed-world**: banking candidates 0.984, full-77 0.874, clinc
-  0.989 — wins fixed-taxonomy scenarios; cannot choose `none` (modelling
-  choice, not an inherent limit).
-- **TF-IDF+LR with trainable reject** (`tfidf_lr_none`): clinc OOS 0.890 and
-  cross-domain xprobe **0.963 at 3.8 % selective risk — beats us** (0.785 /
-  21.5 %): a linear classifier with a trained reject generalises
-  out-of-domain better than this model. Measured negative result, stated
-  plainly.
-- **Laya zero-shot**: strongest on clinc OOS (0.985 at 82 % coverage) but
-  collapses on banking/massive candidates (0.725/0.545) and its confidence
-  needs a 0.995 threshold for 17 % risk at 51 % coverage.
-- **GLiNER2.5**: `not_run` — two isolated-environment attempts failed on the
-  Kaggle image (venv ensurepip / transformers<5 conflicts). Errors recorded;
-  never presented as evaluated.
+Fitted on `e36-calib`, a dedicated split of 480 fresh two-decimal numeric
+questions (60 values × 8 threshold offsets, 4 Yes/4 No per value). The split
+is disjoint from the entire prior numeric universe of the campaign (values
+and thresholds of every e24 to e35 train/dev/eval file, 1,106 numbers),
+verified at build and re-derived by an independent verifier. It was never
+used for training.
 
-Where this model wins: candidate-set decisions in all three languages with
-the best calibration (ECE 0.005–0.011) and the lowest neural latency
-(p50 22–26 ms on T4 for K=6), plus exact option-order invariance.
+**Temperature** (single global scalar, fitted by NLL minimization on the
+split only):
 
-## Typed decisions (Julia-1 benchmark) — honest labelling
-
-- Julia-1 reproduced locally with its official script (isolated venv, CPU):
-  **0.7255** (1,451/2,000) vs published 0.7315.
-- Our v0.1 zero-shot under the frozen adapter protocol: see
-  `docs/typed-decisions-protocol.md` and `runs/typed-decisions/` — a
-  **different adaptation budget** (never trained on this format), reported as
-  `zero_shot_domain_shift`, never as a like-for-like defeat or victory.
-- Adapted same-data comparisons were run in the E24–E34 campaign — see the
-  numeric-order section below for the full three-context Julia tables.
-
-## Numeric-order capability (E24–E34 campaign, 2026-10-10/11)
-
-A second lineage (JuliaArch-small: mmBERT-small + marker head, ~140M) was
-taught to compare a state value against a question threshold (`value ≥ t`)
-without shortcuts, then integrated with original-task replay. Campaign
-record: `docs/experiments.md`; release notes:
-`docs/RELEASE_NOTES_E24-E29b.md`.
-
-**Validated version** = candidate E28-s43 (sha256 `75ea9eed…`, dev-patience
-trained on the 944-row dense grid) + 15 epochs of 944 original-task rows +
-944 grid replay (fresh optimizer per 5-epoch phase). Independent validation
-on a disjoint sample (E30) met the pre-registered F1″ criterion. The public
-export is **Gjusev/MK-SH-1**: v1.1 adds replay-protected edge training
-(E35, E-extrap 0.750 → 0.875/0.857); **v1.2** adds temperature + abstention
-policy on identical weights (below).
-
-| Metric (validated point) | Value | Reference |
+| | NLL | ECE (15 bins) |
 |---|---|---|
-| testC — order, known thresholds (n=48) | **0.958–0.979** | E29b/E30 |
-| testD — interpolation (n=54) | 0.926 (intact through integration) | E29 |
-| testE-interp — fresh 2-decimal OOD (n=116) | **0.922–0.931**, 8/8 pure pairs | E29b/E30 |
-| testE-extrap — fresh 2-decimal OOD (n=56) | **0.750–0.786**, 2–4/8 pairs — **the weak number, declared** | E29b |
-| Monotonicity VE2 (10 sweeps) | 9/10 | E29b/E30 |
-| Original task (routing, 300-row slice) | **0.690–0.733** (from 0.157 specialized) | E29/E30 |
+| split, before (T=1) | 0.879 | 0.073 |
+| **split, after (T=7.653)** | **0.196** | **0.016** |
 
-**Julia-1 context (all numbers from the single E32/E34 CPU-float32 harness,
-system comparisons — recipes differ, no architecture claims):**
+Descriptive (T applied, never re-fitted, frozen evals):
 
-| Context | testC | E-interp | E-extrap | VE2 | Own task |
-|---|---|---|---|---|---|
-| Julia-1 zero-shot (official weights) | 0.563 | 0.552 | 0.500 | 0/10 | typed-2000 **0.7255** |
-| Julia-1 adapted, our grid (E32) | **1.000** | 0.961 | **0.911** | 7/10 | typed-2000 −13.6/−19.0 pp |
-| Julia-1 + replay (E34) | **1.000** | 0.940/0.983 | — | — | typed-2000 **−27.1/−23.5 pp**; proxy-task 0.83 |
-| Mokka integrated (E30-MIX) | 0.979 | 0.922 | 0.750 | **9/10** | routing **0.733** (recovered) |
+| Set | NLL before → after | ECE before → after |
+|---|---|---|
+| known thresholds (n=48) | 0.225 → 0.062 | 0.024 → 0.042 |
+| new thresholds (n=54) | 0.636 → 0.126 | 0.037 → 0.035 |
+| monotonicity (n=60) | 0.921 → 0.192 | 0.033 → 0.026 |
+| fresh OOD (n=202) | 2.183 → 0.414 | 0.092 → 0.076 |
+| routing task (n=300) | 2.535 → 0.588 | 0.184 → 0.045 |
 
-Declared reading: adapted Julia transfers numeric order better at the
-edges; the integrated Mokka version keeps monotonicity and its task. Replay
-gives Julia a proxy task + order simultaneously but degrades its own task
-*faster than no replay*. The trade-off refines by which task is at stake;
-neither system dominates.
+Abstention policy (the rule was frozen before anyone looked at the curve):
+tau is the smallest threshold on the grid 0.30:0.005:0.995 whose selective
+risk stays at or below 5% on the split, for maximum coverage under the risk
+budget (the same rule as this project's v0.1 release). Result: tau = 0.79,
+coverage 90.0%, selective accuracy 95.14% (selective risk 4.86%) against
+92.29% forced accuracy, so the policy buys +2.85 pp on the cases it keeps.
+Abstaining returns
+`choice=null` + `reason_code="below_validated_threshold"`. The full
+coverage/accuracy/risk curve is in the training repo
+(`runs/e36-calib/e36_report.json`, deterministically regenerable).
 
-## Calibration & abstention — MK-SH-1 v1.2 (numeric-order lineage)
+## Usage
 
-Public model **Gjusev/MK-SH-1 v1.2** ships real calibration and abstention on
-weights byte-identical to v1.1 (no retraining; experiment E36, criteria
-frozen before measurement, `docs/experiments.md`). Fitted on `e36-calib`, a
-dedicated 480-question split (60 fresh 2-decimal values × 8 threshold
-offsets, 4 Yes/4 No per value) disjoint from the entire prior numeric
-universe of the campaign (values and thresholds of every e24–e35 file —
-verified at build and re-derived independently):
+```python
+from mokka_decisions.arch_julia import JuliaArchScorer, collate_julia
+from mokka_decisions.policy import apply_policy
+from safetensors.torch import load_file
+from transformers import AutoTokenizer
+import json, torch
 
-- **Temperature T = 7.653** (single global scalar, golden-section NLL fit on
-  the split only). Split: NLL 0.879 → 0.196, ECE 0.073 → 0.016. **Monotone:
-  changes NO choices** — accuracy identical by construction, verified case
-  by case on every set. Descriptive on frozen evals: task NLL 2.535 → 0.588
-  (ECE 0.184 → 0.045), testE 2.183 → 0.414; the easiest set (known
-  thresholds) is slightly over-softened (ECE 0.024 → 0.042) — the declared
-  cost of one global scalar.
-- **Abstention τ = 0.79** on max calibrated probability (rule frozen before
-  the curve: smallest τ with selective risk ≤ 5%, max coverage — the v0.1
-  release rule): coverage 90.0%, selective accuracy 95.14% vs 92.29% forced
-  (+2.85 pp). Abstaining returns `choice=null` +
-  `reason_code="below_validated_threshold"`. Full curve:
-  `runs/e36-calib/e36_report.json` (deterministic analyzer).
-- Export `runs/hf-export/mksh-1-v1.2/` embeds `inference-policy.json`
-  (self-documenting; format inspired by Julia-1's embedded per-type
-  temperatures). The v1.1 card limitation "does not include the temperature
-  calibration or abstention policy" is **removed**.
+d = "."  # this repo
+policy = json.load(open("inference-policy.json"))
+T, tau = policy["temperature"]["value"], policy["abstention"]["threshold"]
 
-## Calibration & abstention (v0.1 routing model)
+model = JuliaArchScorer("jhu-clsp/mmBERT-small")
+model.load_state_dict(load_file("model.safetensors"))
+model.eval()
+tok = AutoTokenizer.from_pretrained(".")
 
-Temperature on `cal_temperature` only; threshold on `cal_policy` only. The
-5 % selective-risk target is met on calibration data (2.37 %) and holds on
-candidate-set test scenarios (1.4–3.1 %); it does **not** hold on the
-78-option scenario (17.4 %) or the cross-domain probe (21.5 %) — those are
-outside the declared scope. Choosing `none` is a decision; abstaining returns
-`choice=null` + reason code.
+qtype = {"demo": "noul"}
+cases = [...]  # DecisionCase objects; see the training repo's contract
+batch = collate_julia(tok, cases, qtype, max_length=1024, head_length=256, device="cpu")
+with torch.inference_mode():
+    logits = model(**{k: batch[k] for k in
+        ("input_ids", "attention_mask", "marker_pos", "marker_mask", "qtype")})
+probs = (logits / T).softmax(-1)          # calibrated probabilities
+response = apply_policy(cases[0],
+    {opt.id: p for opt, p in zip(cases[0].options, probs[0].tolist())},
+    threshold=tau)                          # choice, or abstain + reason_code
+```
 
-## Known limitations
+## Architecture
 
-- Option descriptions are English across languages (schema-described-once
-  scenario); cross-lingual transfer measured, not assumed.
-- CLINC option texts are humanized intent names, not authored glosses.
-- Cross-domain OOS false acceptance 20.8 % (6.5 % of probe labels audited as
-  ambiguous by exact-name collision).
-- 77-way full-taxonomy decisions degrade vs fixed classifiers trained on the
-  same labels (0.812 vs 0.872).
-- Numeric-order capability: E-extrap after integration is the declared weak
-  number (0.750, 2/8 pure pairs); monotonicity 9/10 not 10/10; the Julia
-  comparisons are **system** comparisons (recipes differ) — no architecture
-  claim is made anywhere in this campaign.
-- The numeric-order lineage (JuliaArch-small) is exported separately as the
-  public model **Gjusev/MK-SH-1** (v1.2 ships calibration + abstention, see
-  above); it is not inside the v0.1 release package, whose routing model has
-  its own calibration (below).
+`JuliaArchScorer`: see `ARCHITECTURE.md` in this repo and
+`src/mokka_decisions/arch_julia.py` in the training repo. Encoder:
+mmBERT-small (JHU CLSP, MIT), fine-tuned. Head: 2 pre-norm transformer
+layers + type embedding + marker scorer (one MASK per option).
 
-## Verdict
+## Training / calibration provenance
 
-**`qualified_for_declared_scope`** — declared scope: candidate-set decisions
-(2–12 described options, gold present) on banking and assistant intent
-domains, EN/DE/ES, with calibrated probabilities and permutation-invariant
-scoring; `none`-selection works on in-distribution OOS (93.3 %) but
-out-of-domain abstention is **not** within the validated risk budget
-(`experimental` for xprobe/77-way scenarios).
+Weights: the E35 s42 final checkpoint, from mmBERT-small upstream + fresh seeded
+head; dense comparison grid, edge/chain augmentation, dev-patience stopping,
+replay-mixing integration (E24 to E30), replay-protected extremes (E35).
+Calibration + policy: experiment **E36** (criteria frozen before
+measurement, generator committed before the outcome, deterministic
+byte-exact analyzer, adversarial conventions of the campaign). Full record:
+[github.com/Gjusev/MK-SH-1](https://github.com/Gjusev/MK-SH-1)
+(`docs/experiments.md`, `docs/model-card.md`). What this model is good for,
+with the measured capability and the bound behind each case:
+[Use cases](https://github.com/Gjusev/MK-SH-1#use-cases). The E31 correction
+story (a wrong closure retracted in public commits, a valid re-run, and a
+permanent regression that prevents recurrence) is in the repo's README under
+"Rigor": honesty is treated as a feature of the evaluation system, not a
+footnote.
+
+## Limitations (declared)
+
+- Single global temperature: it slightly over-softens the easiest
+  distribution (known-thresholds set: ECE 0.024 to 0.042) while improving
+  every fresh, OOD and task distribution by a lot (routing ECE 0.184 to
+  0.045). A per-type temperature, as Julia-1 ships, is the obvious next
+  step; one scalar was the pre-declared choice here.
+- The policy was fitted on the numeric surface only (the model's public
+  decision contract); routing probabilities inherit the global temperature
+  (measured descriptively above).
+- E-extrap 0.875 is not 10/10; monotonicity 8/10 (seed s43 reaches 10/10
+  with lower E-extrap).
+- No architecture claims vs Julia-1: complete-system comparisons only.
+
+## Attribution
+
+- Encoder: [mmBERT-small](https://huggingface.co/jhu-clsp/mmBERT-small) by
+  JHU CLSP, MIT license, fine-tuned by this project.
+- Comparator: Julia-1 (public release), used under its license for
+  evaluation only.
+- Training, evaluation and calibration system: this project (Apache-2.0).
 
 ## License
 
-Apache-2.0 (code and trained weights of this release). Datasets and the
-inherited encoder keep their own licenses (`THIRD_PARTY_NOTICES.md`).
+Apache-2.0 (code and trained weights of this export). The inherited encoder
+keeps its MIT license.
