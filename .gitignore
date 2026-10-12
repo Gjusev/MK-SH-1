@@ -70,3 +70,5 @@ kaggle-checkpoint-tmp/
 .playwright-mcp/
 assets/comparison-dark.png
 brag-output*/
+demo/usecases/mksh-triage.gif
+demo/usecases/mksh-triage.mp4

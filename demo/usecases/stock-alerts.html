@@ -10,8 +10,9 @@
    the MAREA blue as the chroma accent (accept goes blue). Neo-brutalist:
    square corners, hard 1px lines, no shadows. Sized for video legibility. */
 :root {
+  color-scheme: dark;
   --canvas: #07101C; --surface: #0B1522; --lane: #0E1B2A; --card: #111F30;
-  --line: #223A55; --line-soft: #172B41; --ink: #EAF2FF; --muted: #8CA7C5;
+  --line: #315171; --line-soft: #24415F; --ink: #F5F9FF; --muted: #AFC4DB;
   --navy: #B9DCFF; --sky: #78AEEB;
   --accept-bg: #0D263D; --accept-line: #35638F; --accept-ink: #B9DCFF;
 }
@@ -22,7 +23,7 @@ body { background: var(--canvas); font-family: 'Geist', system-ui, sans-serif;
 .frame { background: var(--surface); border: 1px solid var(--line); padding: 20px 22px 18px; }
 .head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 h2 { font-size: 15px; font-weight: 600; letter-spacing: 0.01em; text-transform: uppercase; }
-.head .tag { font-family: 'Geist Mono', monospace; font-size: 11px; color: var(--muted); }
+.head .tag { font-family: 'Geist Mono', monospace; font-size: 12px; color: var(--muted); }
 
 /* the question is the hero: it types itself, cursor while typing */
 .ask { display: flex; align-items: center; justify-content: space-between; gap: 12px;
@@ -32,7 +33,7 @@ h2 { font-size: 15px; font-weight: 600; letter-spacing: 0.01em; text-transform: 
 .ask .q b { color: var(--navy); font-weight: 500; }
 .ask .cursor { display: inline-block; width: 9px; height: 19px; margin-left: 2px;
   background: var(--navy); vertical-align: -3px; }
-.ask .gate { font-family: 'Geist Mono', monospace; font-size: 11px; color: var(--muted);
+.ask .gate { font-family: 'Geist Mono', monospace; font-size: 12px; color: var(--muted);
   white-space: nowrap; }
 
 .stage { position: relative; display: flex; gap: 10px; height: 420px; }
@@ -47,7 +48,7 @@ h2 { font-size: 15px; font-weight: 600; letter-spacing: 0.01em; text-transform: 
 .lane.accept { background: var(--accept-bg); border-color: var(--accept-line); }
 .lane.accept .t, .lane.accept .n { color: var(--accept-ink); }
 #review-note { position: absolute; left: 12px; right: 12px; top: 268px;
-  font-family: 'Geist Mono', monospace; font-size: 11px; line-height: 1.8;
+  font-family: 'Geist Mono', monospace; font-size: 12px; line-height: 1.7;
   color: var(--muted); z-index: 1; }
 #review-note .rc { color: var(--ink); }
 
@@ -60,7 +61,7 @@ h2 { font-size: 15px; font-weight: 600; letter-spacing: 0.01em; text-transform: 
   overflow: hidden; }
 .ticket .val { font-family: 'Geist Mono', monospace; font-size: 23px; font-weight: 500;
   color: var(--ink); line-height: 1.3; }
-.ticket .val small { font-size: 11px; color: var(--muted); font-weight: 400; margin-left: 5px; }
+.ticket .val small { font-size: 12px; color: var(--muted); font-weight: 400; margin-left: 5px; }
 .ticket .ans { font-family: 'Geist Mono', monospace; font-size: 13px; color: var(--muted);
   min-height: 18px; white-space: nowrap; }
 .ticket .ans .pct { opacity: 0; transition: opacity 200ms ease; }
@@ -76,7 +77,7 @@ h2 { font-size: 15px; font-weight: 600; letter-spacing: 0.01em; text-transform: 
 .stat { flex: 1 1 0; }
 .stat + .stat { border-left: 1px solid var(--line-soft); padding-left: 16px; margin-left: 16px; }
 .stat .v { font-family: 'Geist Mono', monospace; font-size: 20px; color: var(--navy); }
-.stat .l { font-size: 11px; color: var(--muted); margin-top: 3px; }
+.stat .l { font-size: 12px; line-height: 1.35; color: var(--muted); margin-top: 3px; }
 </style>
 </head>
 <body>

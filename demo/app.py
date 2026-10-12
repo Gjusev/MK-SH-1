@@ -123,10 +123,30 @@ def render_question(question):
     return f'<div class="q-asked">Question asked: {q}</div>'
 
 
-CSS = """
-@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap');
+HEAD = """
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+"""
 
-:root { color-scheme: dark; }
+DARK_BOOT = """() => {
+  try { localStorage.setItem("gradio_theme", "dark"); } catch (_) {}
+  document.documentElement.classList.add("dark");
+  if (document.body) document.body.classList.add("dark");
+}"""
+
+CSS = """
+:root {
+  color-scheme: dark;
+  --body-background-fill: #07101C; --background-fill-primary: #0C1827;
+  --background-fill-secondary: #102238; --panel-background-fill: #0C1827;
+  --block-background-fill: #0C1827; --input-background-fill: #091421;
+  --border-color-primary: #24415F; --border-color-accent: #5F97D3;
+  --block-border-color: #24415F; --panel-border-color: #24415F;
+  --body-text-color: #EAF2FF; --block-title-text-color: #C8D8EA;
+  --color-accent: #8BBBF2; --color-accent-soft: #0D263D; --link-text-color: #C7E1FF;
+  --button-primary-background-fill: #8BBBF2; --button-primary-text-color: #07101C;
+}
 html, body { background: #07101C !important; }
 .gradio-container { max-width: 1080px; margin: 0 auto; padding: 56px 24px 72px !important;
   background: #07101C; font-family: 'Geist', system-ui, sans-serif; color: #EAF2FF; }
@@ -137,7 +157,7 @@ html, body { background: #07101C !important; }
 #hero h1 { font-family: 'Geist', system-ui, sans-serif; font-weight: 600; letter-spacing: -0.045em;
   font-size: 48px; line-height: 0.98; margin: 0 0 10px; color: #F5F9FF; }
 #hero .sub { font-size: 16px; line-height: 1.55; color: #B6C8DF; max-width: 560px; margin: 0; }
-#hero .meta { font-family: 'Geist Mono', monospace; font-size: 12.5px; color: #7893B3; margin: 0; }
+#hero .meta { font-family: 'Geist Mono', monospace; font-size: 13px; line-height: 1.55; color: #A7BED8; margin: 0; }
 .num, .code { font-family: 'Geist Mono', monospace; font-size: 0.94em; }
 .code { background: transparent; color: inherit; }
 
@@ -148,12 +168,17 @@ html, body { background: #07101C !important; }
 
 .gradio-container input[type="text"], .gradio-container input[type="number"],
 .gradio-container textarea { border-radius: 8px !important; border-color: #284966 !important;
-  background: #091421 !important; color: #EAF2FF !important; font-family: 'Geist Mono', monospace !important; font-size: 13px !important; }
-button.primary { background: #78AEEB !important; color: #07101C !important;
-  border-radius: 6px !important; border: none !important; font-weight: 600 !important;
+  background: #091421 !important; color: #F5F9FF !important; caret-color: #B9DCFF !important;
+  font-family: 'Geist Mono', monospace !important; font-size: 14px !important; }
+.gradio-container label, .gradio-container .label-wrap { color: #C8D8EA !important; }
+.gradio-container button.primary { background: #8BBBF2 !important; color: #07101C !important;
+  border-radius: 7px !important; border: 1px solid #B9DCFF !important; font-weight: 650 !important;
+  min-height: 48px !important; font-size: 15px !important;
   box-shadow: none !important; transition: transform 120ms ease, background 120ms ease; }
-button.primary:hover { background: #A4C9F4 !important; transform: none; }
-button.primary:active { transform: scale(0.98); }
+.gradio-container button.primary:hover { background: #B9DCFF !important; transform: none; }
+.gradio-container button.primary:active { transform: scale(0.99); }
+.gradio-container button.primary:focus-visible { outline: 3px solid #EAF2FF !important; outline-offset: 3px; }
+.gradio-container button.primary:disabled { background: #4D6883 !important; color: #D6E4F3 !important; opacity: 1 !important; }
 .gradio-container :focus { --ring-color: #82B8FF !important; }
 
 .probs { display: flex; flex-direction: column; gap: 10px; margin-top: 4px; }
@@ -170,10 +195,15 @@ button.primary:active { transform: scale(0.98); }
 .v-meta { font-size: 14px; line-height: 1.5; }
 .verdict .rule { margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(0,0,0,0.08);
   font-size: 13px; line-height: 1.5; opacity: 0.85; }
-.q-asked { font-size: 13.5px; color: #9AB1CB; margin-top: 18px; }
+.q-asked { font-size: 14px; line-height: 1.55; color: #B4C8DE; margin-top: 18px; }
 
-.vignette { width: 100%; height: 740px; border: none; border-radius: 12px; }
-.usecase-intro { color: #9AB1CB; font-size: 14px; line-height: 1.55; margin: -2px 0 14px; max-width: 680px; }
+.vignette-scroll { width: 100%; overflow-x: auto; overflow-y: hidden; border: 1px solid #24415F;
+  border-radius: 12px; background: #07101C; scrollbar-color: #5F97D3 #0C1827; }
+.vignette { display: block; width: 1008px; min-width: 1008px; height: 700px; margin: 0 auto;
+  border: none; background: #07101C; }
+.usecase-intro { color: #B4C8DE; font-size: 15px; line-height: 1.6; margin: -2px 0 14px; max-width: 720px; }
+.swipehint { display: none; color: #B4C8DE; font-family: 'Geist Mono', monospace;
+  font-size: 12.5px; line-height: 1.5; margin: 8px 2px 0; }
 
 .examples { margin-top: 40px; }
 .examples .table { border-radius: 12px; border: 1px solid #24415F; background: #0C1827; }
@@ -185,7 +215,7 @@ button.primary:active { transform: scale(0.98); }
 .examples td { padding: 14px 16px !important; font-family: 'Geist Mono', monospace; font-size: 12.5px; }
 
 #foot { margin-top: 48px; padding-top: 20px; border-top: 1px solid #1F3853;
-  font-size: 13px; color: #7893B3; }
+  font-size: 13.5px; line-height: 1.55; color: #A7BED8; }
 #foot a { color: #B9DCFF; text-decoration: underline; text-underline-offset: 3px; margin-right: 18px; }
 #foot .note { margin-top: 8px; font-size: 12.5px; }
 
@@ -194,6 +224,25 @@ button.primary:active { transform: scale(0.98); }
 .d1 { animation-delay: 80ms; } .d2 { animation-delay: 160ms; } .d3 { animation-delay: 240ms; }
 @keyframes rise { to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .rise { animation: none; opacity: 1; transform: none; } }
+
+@media (max-width: 720px) {
+  .gradio-container { padding: 28px 14px 48px !important; }
+  #hero { padding-left: 14px; }
+  #hero .brand { gap: 12px; }
+  #hero .brand img { width: 88px; height: 44px; }
+  #hero h1 { font-size: 38px; }
+  #hero .sub { font-size: 15px; }
+  .panel { padding: 20px 16px !important; }
+  .vignette { margin: 0; }
+  .swipehint { display: block; }
+  .examples { margin-top: 28px; }
+  #foot { margin-top: 36px; }
+}
+
+@media (prefers-contrast: more) {
+  .usecase-intro, .q-asked, #foot, #hero .meta { color: #D6E4F3; }
+  .panel, .vignette-scroll { border-color: #7CA9D6; }
+}
 
 /* MAREA nocturna: persist the same composed dark surface on every device. */
 .dark {
@@ -241,10 +290,8 @@ def build():
     gr.set_static_paths(paths=["assets", "usecases"])
     # The demo uses one intentional MAREA nocturna surface, including when the
     # host/browser preference would otherwise switch Gradio back to light mode.
-    force_dark = ("try{localStorage.setItem('gradio_theme','dark')}catch(e){};"
-                  "document.documentElement.classList.add('dark');"
-                  "document.body.classList.add('dark');")
-    with gr.Blocks(css=CSS, title="MK-SH-1 demo", js=force_dark) as demo:
+    # Blocks expects a callable JS expression; raw statements abort hydration.
+    with gr.Blocks(css=CSS, title="MK-SH-1 demo", js=DARK_BOOT, head=HEAD) as demo:
         gr.HTML(hero)
         with gr.Column(elem_classes=["rise", "d1"]):
             gr.HTML('<span class="kicker">Use cases</span>'
@@ -256,8 +303,11 @@ def build():
                                        ("Lead qualification", "usecases/lead-qual.html"),
                                        ("Stock alerts", "usecases/stock-alerts.html")):
                     with gr.Tab(tab_label):
-                        gr.HTML(f'<iframe class="vignette" src="/gradio_api/file={src}" '
-                                'title="MK-SH-1 use case vignette" loading="lazy"></iframe>')
+                        gr.HTML(f'<div class="vignette-scroll" tabindex="0" '
+                                'aria-label="Interactive use case; scroll horizontally on small screens">'
+                                f'<iframe class="vignette" src="/gradio_api/file={src}" '
+                                'title="MK-SH-1 use case vignette" loading="lazy" scrolling="no"></iframe>'
+                                '</div><p class="swipehint">Swipe horizontally to inspect every lane at full, readable size.</p>')
         with gr.Column(elem_classes=["panel", "rise", "d1"]):
             gr.HTML('<span class="kicker">Live decision lab</span>')
             state = gr.Textbox(
@@ -266,7 +316,7 @@ def build():
             threshold = gr.Number(
                 label="Threshold t, in degrees (question: is the reading at least t?)",
                 value=37.43)
-            run = gr.Button("Run decision")
+            run = gr.Button("Run decision", variant="primary")
             out_probs = gr.HTML('<div class="q-asked">Calibrated probabilities appear here '
                                 'after you run a decision.</div>')
             out_verdict = gr.HTML('<div class="q-asked">The choice, or the refusal with its '
