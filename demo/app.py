@@ -226,6 +226,9 @@ html, body { background: #07101C !important; }
 @media (prefers-reduced-motion: reduce) { .rise { animation: none; opacity: 1; transform: none; } }
 
 @media (max-width: 720px) {
+  /* the internal lane swipe is the real scroller; this kills the phantom
+     ~100px page-level horizontal scroll Gradio's tab wrappers otherwise add */
+  body { overflow-x: hidden; }
   .gradio-container { padding: 28px 14px 48px !important; }
   #hero { padding-left: 14px; }
   #hero .brand { gap: 12px; }
@@ -233,6 +236,12 @@ html, body { background: #07101C !important; }
   #hero h1 { font-size: 38px; }
   #hero .sub { font-size: 15px; }
   .panel { padding: 20px 16px !important; }
+  /* definite cap so the 1008px iframe swipes inside its own lane instead of
+     stretching the whole page (min-width propagates through flex parents) */
+  .vignette-scroll { max-width: calc(100vw - 60px); margin: 0 auto; }
+  /* the Examples dataset wrappers force a 760px+ min-content on phones;
+     release every box inside that column so the table wraps instead */
+  .column.rise.d2 * { white-space: normal; min-width: 0; max-width: 100%; }
   .vignette { margin: 0; }
   .swipehint { display: block; }
   .examples { margin-top: 28px; }
