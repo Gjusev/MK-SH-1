@@ -1,0 +1,64 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#F7F6F3;display:flex;align-items:center;justify-content:center;height:100vh}
+svg{display:block}
+</style></head><body>
+<svg width="900" height="450" viewBox="0 0 1024 512" xmlns="http://www.w3.org/2000/svg">
+  <!-- banda superior: onda navy -->
+  <path d="M0,0 H1024 V150
+           C 900,208 760,170 620,200
+           C 480,232 320,196 180,214
+           C 110,222 50,212 0,220 Z"
+        fill="#1B2A41"/>
+  <!-- banda inferior: onda azul media -->
+  <path d="M0,512 V332
+           C 150,300 300,344 470,322
+           C 640,300 800,338 900,318
+           C 950,308 990,314 1024,306 V512 Z"
+        fill="#4A6FA5"/>
+  <!-- tiburon ballena: perfil hacia la derecha, rompe entre las dos bandas -->
+  <g>
+    <!-- cuerpo -->
+    <path d="M 872,242
+             C 868,214 838,190 798,184
+             C 748,178 688,190 610,200
+             C 520,212 420,222 352,232
+             C 330,235 318,240 312,246
+             L 236,196
+             C 232,194 228,196 230,201
+             L 292,258
+             L 238,308
+             C 235,312 238,316 243,314
+             L 322,272
+             C 340,282 372,296 430,306
+             C 520,322 640,330 730,320
+             C 800,312 856,284 872,242 Z"
+          fill="#F7F6F3"/>
+    <!-- aleta pectoral -->
+    <path d="M 600,318 C 596,352 574,384 544,398
+             C 540,400 536,398 538,393
+             C 548,368 556,340 558,312 Z"
+          fill="#F7F6F3"/>
+    <!-- ojo -->
+    <circle cx="806" cy="228" r="9" fill="#1B2A41"/>
+    <!-- lunares pale blue, dos filas -->
+    <g fill="#A8C3E8">
+      <circle cx="760" cy="212" r="7"/>
+      <circle cx="706" cy="226" r="7"/>
+      <circle cx="652" cy="218" r="7"/>
+      <circle cx="598" cy="232" r="7"/>
+      <circle cx="544" cy="224" r="7"/>
+      <circle cx="490" cy="238" r="6"/>
+      <circle cx="436" cy="230" r="6"/>
+      <circle cx="384" cy="242" r="5"/>
+      <circle cx="733" cy="248" r="6"/>
+      <circle cx="679" cy="258" r="6"/>
+      <circle cx="625" cy="252" r="6"/>
+      <circle cx="571" cy="262" r="6"/>
+      <circle cx="517" cy="256" r="5"/>
+      <circle cx="463" cy="266" r="5"/>
+    </g>
+  </g>
+</svg>
+</body></html>

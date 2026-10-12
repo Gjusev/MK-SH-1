@@ -1,0 +1,73 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#F7F6F3;display:flex;align-items:center;justify-content:center;height:100vh}
+svg{display:block}
+</style></head><body>
+<svg width="900" height="450" viewBox="0 0 1024 512" xmlns="http://www.w3.org/2000/svg">
+  <!-- agua superior: navy full bleed -->
+  <rect width="1024" height="512" rx="0" fill="#1B2A41"/>
+  <!-- agua inferior: banda azul media con borde ondulado -->
+  <path d="M0,512 V342
+           C 150,308 310,352 480,330
+           C 650,308 810,348 1024,322 V512 Z"
+        fill="#4A6FA5"/>
+
+  <!-- tiburon ballena: hocico cuadrado a la derecha, cola bifurcada a la izquierda -->
+  <g>
+    <!-- cuerpo principal -->
+    <path d="M 884,236
+             C 880,206 846,178 796,172
+             C 738,166 664,178 578,190
+             C 486,203 396,214 340,224
+             C 318,228 306,234 300,242
+             C 296,248 296,254 300,260
+             L 258,296
+             C 254,299 256,304 261,303
+             L 310,278
+             C 322,290 344,300 376,308
+             C 452,326 560,336 668,330
+             C 748,326 816,306 856,272
+             C 872,260 882,248 884,236 Z"
+          fill="#F7F6F3"/>
+    <!-- cola bifurcada: lobo superior -->
+    <path d="M 302,246
+             C 268,222 236,192 214,158
+             C 211,153 206,154 206,160
+             C 208,196 224,232 250,262
+             Z" fill="#F7F6F3"/>
+    <!-- cola bifurcada: lobo inferior -->
+    <path d="M 304,256
+             C 272,280 246,308 232,338
+             C 230,343 234,347 239,344
+             C 264,326 288,300 308,272
+             Z" fill="#F7F6F3"/>
+    <!-- aleta pectoral: unida suave, cae hacia atras -->
+    <path d="M 560,308
+             C 548,342 524,372 492,388
+             C 487,390 483,387 485,382
+             C 500,356 510,330 512,302
+             Z" fill="#EDEFEA"/>
+    <!-- ojo -->
+    <circle cx="800" cy="222" r="9" fill="#1B2A41"/>
+    <!-- lunares: organicos, tamanos variados siguiendo el cuerpo -->
+    <g fill="#A8C3E8">
+      <circle cx="748" cy="206" r="8"/>
+      <circle cx="694" cy="224" r="6"/>
+      <circle cx="640" cy="204" r="7"/>
+      <circle cx="586" cy="226" r="8"/>
+      <circle cx="532" cy="210" r="5"/>
+      <circle cx="478" cy="232" r="7"/>
+      <circle cx="424" cy="218" r="5"/>
+      <circle cx="374" cy="240" r="5"/>
+      <circle cx="712" cy="248" r="6"/>
+      <circle cx="658" cy="260" r="5"/>
+      <circle cx="604" cy="252" r="6"/>
+      <circle cx="550" cy="268" r="5"/>
+      <circle cx="496" cy="258" r="4"/>
+      <circle cx="442" cy="272" r="4"/>
+      <circle cx="396" cy="260" r="4"/>
+    </g>
+  </g>
+</svg>
+</body></html>
