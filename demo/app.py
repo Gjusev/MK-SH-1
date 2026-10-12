@@ -192,6 +192,20 @@ button.primary:active { transform: scale(0.98); }
 .d1 { animation-delay: 80ms; } .d2 { animation-delay: 160ms; } .d3 { animation-delay: 240ms; }
 @keyframes rise { to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .rise { animation: none; opacity: 1; transform: none; } }
+
+/* forced light: re-pin Gradio's theme tokens inside .dark to our palette */
+.dark {
+  --body-background-fill: #F7F6F3; --background-fill-primary: #FFFFFF;
+  --background-fill-secondary: #FAF9F6; --panel-background-fill: #FFFFFF;
+  --block-background-fill: #FFFFFF; --input-background-fill: #FFFFFF;
+  --border-color-primary: #EAEAEA; --border-color-accent: #D9D6CF;
+  --block-border-color: #EAEAEA; --panel-border-color: #EAEAEA;
+  --body-text-color: #111111; --block-title-text-color: #667081;
+  --color-accent-soft: #F1EFEA; --link-text-color: #1B2A41;
+  --button-primary-background-fill: #111111; --button-primary-text-color: #FFFFFF;
+  color-scheme: light;
+}
+.dark .gradio-container, .dark { background: #F7F6F3 !important; color: #111111; }
 """
 
 
