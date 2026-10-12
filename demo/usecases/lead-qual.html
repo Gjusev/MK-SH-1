@@ -15,14 +15,6 @@
   --navy: #1B2A41; --sky: #7A9CC6;
   --accept-bg: #EEF4EC; --accept-line: #C9DCC4; --accept-ink: #2F6238;
 }
-@media (prefers-color-scheme: dark) {
-  :root:not(.force-light) {
-    --canvas: #07080B; --surface: #0C0F14; --lane: #10141B; --card: #141A24;
-    --line: #232B39; --line-soft: #181E29; --ink: #E9EDF3; --muted: #8494AC;
-    --navy: #6FA3E8; --sky: #46689C;
-    --accept-bg: #0D1626; --accept-line: #22406B; --accept-ink: #7FB3E8;
-  }
-}
 * { margin: 0; padding: 0; box-sizing: border-box; border-radius: 0; }
 body { background: var(--canvas); font-family: 'Geist', system-ui, sans-serif;
   color: var(--ink); display: flex; justify-content: center; padding: 24px; }
@@ -91,11 +83,6 @@ h2 { font-size: 15px; font-weight: 600; letter-spacing: 0.01em; text-transform: 
 .stat .v { font-family: 'Geist Mono', monospace; font-size: 20px; color: var(--navy); }
 .stat .l { font-size: 11px; color: var(--muted); margin-top: 3px; }
 </style>
-<script>
-const h = location.hash;
-if (h.includes("light")) document.documentElement.classList.add("force-light");
-if (h.includes("hold")) window.__hold = true;   /* QA: populated hold state, frozen */
-</script>
 </head>
 <body>
 <div class="vignette">

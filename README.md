@@ -1,6 +1,7 @@
-<p align="center"><img src="assets/logo-mark.png" width="260" alt="MK-SH-1 mark: a whale shark in negative space between two tide bands"></p>
-
-# MK-SH-1
+<table><tr>
+<td><img src="assets/logo-mark.png" width="130" alt="MK-SH-1 mark: a whale shark in negative space between two tide bands"></td>
+<td><h1>MK-SH-1</h1><p><sub>calibrated decisions with an explicit abstention gate</sub></p></td>
+</tr></table>
 
 A small open **decision model**: given a state, a question and a list of
 described options, it returns calibrated probabilities, a choice, and when
