@@ -92,7 +92,10 @@ record: `docs/experiments.md`; release notes:
 **Validated version** = candidate E28-s43 (sha256 `75ea9eed…`, dev-patience
 trained on the 944-row dense grid) + 15 epochs of 944 original-task rows +
 944 grid replay (fresh optimizer per 5-epoch phase). Independent validation
-on a disjoint sample (E30) met the pre-registered F1″ criterion.
+on a disjoint sample (E30) met the pre-registered F1″ criterion. The public
+export is **Gjusev/MK-SH-1**: v1.1 adds replay-protected edge training
+(E35, E-extrap 0.750 → 0.875/0.857); **v1.2** adds temperature + abstention
+policy on identical weights (below).
 
 | Metric (validated point) | Value | Reference |
 |---|---|---|
@@ -119,9 +122,35 @@ gives Julia a proxy task + order simultaneously but degrades its own task
 *faster than no replay*. The trade-off refines by which task is at stake;
 neither system dominates.
 
-## Calibration & abstention
+## Calibration & abstention — MK-SH-1 v1.2 (numeric-order lineage)
 
-## Calibration & abstention
+Public model **Gjusev/MK-SH-1 v1.2** ships real calibration and abstention on
+weights byte-identical to v1.1 (no retraining; experiment E36, criteria
+frozen before measurement, `docs/experiments.md`). Fitted on `e36-calib`, a
+dedicated 480-question split (60 fresh 2-decimal values × 8 threshold
+offsets, 4 Yes/4 No per value) disjoint from the entire prior numeric
+universe of the campaign (values and thresholds of every e24–e35 file —
+verified at build and re-derived independently):
+
+- **Temperature T = 7.653** (single global scalar, golden-section NLL fit on
+  the split only). Split: NLL 0.879 → 0.196, ECE 0.073 → 0.016. **Monotone:
+  changes NO choices** — accuracy identical by construction, verified case
+  by case on every set. Descriptive on frozen evals: task NLL 2.535 → 0.588
+  (ECE 0.184 → 0.045), testE 2.183 → 0.414; the easiest set (known
+  thresholds) is slightly over-softened (ECE 0.024 → 0.042) — the declared
+  cost of one global scalar.
+- **Abstention τ = 0.79** on max calibrated probability (rule frozen before
+  the curve: smallest τ with selective risk ≤ 5%, max coverage — the v0.1
+  release rule): coverage 90.0%, selective accuracy 95.14% vs 92.29% forced
+  (+2.85 pp). Abstaining returns `choice=null` +
+  `reason_code="below_validated_threshold"`. Full curve:
+  `runs/e36-calib/e36_report.json` (deterministic analyzer).
+- Export `runs/hf-export/mksh-1-v1.2/` embeds `inference-policy.json`
+  (self-documenting; format inspired by Julia-1's embedded per-type
+  temperatures). The v1.1 card limitation "does not include the temperature
+  calibration or abstention policy" is **removed**.
+
+## Calibration & abstention (v0.1 routing model)
 
 Temperature on `cal_temperature` only; threshold on `cal_policy` only. The
 5 % selective-risk target is met on calibration data (2.37 %) and holds on
@@ -143,8 +172,10 @@ outside the declared scope. Choosing `none` is a decision; abstaining returns
   number (0.750, 2/8 pure pairs); monotonicity 9/10 not 10/10; the Julia
   comparisons are **system** comparisons (recipes differ) — no architecture
   claim is made anywhere in this campaign.
-- The numeric-order lineage (JuliaArch-small) is not in the v0.1 release
-  package; it lives as campaign checkpoints under `runs/` (gitignored).
+- The numeric-order lineage (JuliaArch-small) is exported separately as the
+  public model **Gjusev/MK-SH-1** (v1.2 ships calibration + abstention, see
+  above); it is not inside the v0.1 release package, whose routing model has
+  its own calibration (below).
 
 ## Verdict
 
