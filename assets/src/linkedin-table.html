@@ -1,0 +1,39 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style>
+@font-face{font-family:'Geist';src:url('fonts/geist-500.woff2') format('woff2');font-weight:500}
+@font-face{font-family:'Geist';src:url('fonts/geist-700.woff2') format('woff2');font-weight:700}
+@font-face{font-family:'Geist Mono';src:url('fonts/geistmono-400.woff2') format('woff2');font-weight:400}
+@font-face{font-family:'Geist Mono';src:url('fonts/geistmono-500.woff2') format('woff2');font-weight:500}
+*{margin:0;padding:0;box-sizing:border-box}
+body{width:1200px;height:630px;background:#F7F6F3;font-family:'Geist',sans-serif;color:#111111;overflow:hidden}
+.page{display:flex;flex-direction:column;height:100%;padding:56px 64px 48px}
+.head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:8px}
+h1{font-weight:700;font-size:40px;letter-spacing:-0.03em}
+.hacc{background:#EDF3EC;color:#346538;font-family:'Geist Mono',monospace;font-size:14px;padding:4px 12px}
+.rule{border-bottom:1px solid #EAEAEA;margin-bottom:22px}
+table{width:100%;border-collapse:collapse}
+th{font-family:'Geist Mono',monospace;font-weight:500;font-size:14.5px;color:#787774;text-align:right;padding:0 0 14px}
+th:first-child{text-align:left}
+th.own{color:#346538}
+td{border-top:1px solid #EAEAEA;padding:17px 0;font-size:19px;letter-spacing:-0.01em}
+td:not(:first-child){text-align:right;font-family:'Geist Mono',monospace;font-size:17.5px}
+td.own{color:#346538;font-weight:500}
+tr:first-child td{border-top:none}
+.foot{margin-top:auto;display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:13.5px;color:#787774}
+</style></head><body>
+<div class="page">
+  <div class="head"><h1>The honest comparison</h1><span class="hacc">one harness</span></div>
+  <div class="rule"></div>
+  <table>
+    <tr><th>metric</th><th>MK-SH-1</th><th>Julia-1 adapted</th><th>Julia-1 + replay</th></tr>
+    <tr><td>Numeric order (testC)</td><td class="own">0.979</td><td>1.000</td><td>1.000</td></tr>
+    <tr><td>OOD extremes</td><td class="own">0.875</td><td>0.911</td><td>-</td></tr>
+    <tr><td>Monotonicity sweeps</td><td class="own">8-10/10</td><td>7/10</td><td>-</td></tr>
+    <tr><td>Its own original task</td><td class="own">0.800 kept</td><td>-13.6 to -19.0 pp</td><td>-27.1 to -23.5 pp</td></tr>
+  </table>
+  <div class="foot">
+    <span>one CPU-float32 harness</span>
+    <span>system comparison - no architecture claims</span>
+  </div>
+</div>
+</body></html>

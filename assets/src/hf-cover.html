@@ -1,0 +1,35 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style>
+@font-face{font-family:'Geist';src:url('fonts/geist-500.woff2') format('woff2');font-weight:500}
+@font-face{font-family:'Geist';src:url('fonts/geist-700.woff2') format('woff2');font-weight:700}
+@font-face{font-family:'Geist Mono';src:url('fonts/geistmono-400.woff2') format('woff2');font-weight:400}
+@font-face{font-family:'Geist Mono';src:url('fonts/geistmono-500.woff2') format('woff2');font-weight:500}
+*{margin:0;padding:0;box-sizing:border-box}
+body{width:1568px;height:392px;background:#F7F6F3;font-family:'Geist',sans-serif;color:#111111;overflow:hidden}
+.wrap{display:flex;height:100%;align-items:center;padding:0 72px}
+.left{flex:1}
+.mark{display:inline-block;width:44px;height:6px;background:#EDF3EC;border-bottom:3px solid #346538;margin-bottom:22px}
+h1{font-weight:700;font-size:88px;letter-spacing:-0.035em;line-height:0.95}
+.tag{margin-top:18px;font-size:21px;color:#787774;letter-spacing:-0.01em}
+.right{border-left:1px solid #EAEAEA;padding-left:56px}
+.right .m{font-family:'Geist Mono',monospace;font-size:15.5px;color:#111111;line-height:2.15}
+.right .m span{color:#787774}
+.acc{display:inline-block;background:#EDF3EC;color:#346538;font-family:'Geist Mono',monospace;font-size:13px;padding:3px 10px;margin-bottom:14px}
+</style></head><body>
+<div class="wrap">
+  <div class="left">
+    <span class="mark"></span>
+    <h1>MK-SH-1</h1>
+    <p class="tag">A 144M decision model that reads numeric thresholds</p>
+  </div>
+  <div class="right">
+    <span class="acc">validated</span>
+    <div class="m">
+      <span>order&nbsp;&nbsp;&nbsp;&nbsp;</span>testC 0.979<br>
+      <span>borders&nbsp;</span>E-extrap 0.875<br>
+      <span>task&nbsp;&nbsp;&nbsp;&nbsp;</span>0.800 kept<br>
+      <span>speed&nbsp;&nbsp;&nbsp;</span>106 ms/q CPU
+    </div>
+  </div>
+</div>
+</body></html>
