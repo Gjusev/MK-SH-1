@@ -11,7 +11,9 @@ Public model: **[Gjusev/MK-SH-1](https://huggingface.co/Gjusev/MK-SH-1)**
 safetensors, Apache-2.0). v1.2 ships calibrated probabilities (T = 7.653)
 and a validated abstention policy (τ = 0.79, 90 % coverage at ≤ 5 %
 selective risk) on weights byte-identical to v1.1 — fitted, not retrained
-(E36).
+(E36). Interactive demo:
+**[Gjusev/MK-SH-1-demo](https://huggingface.co/spaces/Gjusev/MK-SH-1-demo)**
+(source: [`demo/`](demo/)).
 
 **The surviving differentiator** (E32/E34, same CPU-float32 harness): the
 integrated MOKKA version holds a newly-acquired capability (numeric order)

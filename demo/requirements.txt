@@ -1,0 +1,5 @@
+torch
+transformers==5.19.0
+safetensors
+huggingface_hub
+mokka-decisions @ git+https://github.com/Gjusev/mokka-decisions@583b2396
