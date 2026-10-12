@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MK-SH-1 use case: stock alerts</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap');
+
+/* MAREA tokens. Light: warm bone, pale-green accept. Dark: black base with
+   the MAREA blue as the chroma accent (accept goes blue). Neo-brutalist:
+   square corners, hard 1px lines, no shadows. Sized for video legibility. */
+:root {
+  --canvas: #F1EFEA; --surface: #FFFFFF; --lane: #FAF9F5; --card: #FFFFFF;
+  --line: #D9D6CF; --line-soft: #E7E4DD; --ink: #14202F; --muted: #667081;
+  --navy: #1B2A41; --sky: #7A9CC6;
+  --accept-bg: #EEF4EC; --accept-line: #C9DCC4; --accept-ink: #2F6238;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not(.force-light) {
+    --canvas: #07080B; --surface: #0C0F14; --lane: #10141B; --card: #141A24;
+    --line: #232B39; --line-soft: #181E29; --ink: #E9EDF3; --muted: #8494AC;
+    --navy: #6FA3E8; --sky: #46689C;
+    --accept-bg: #0D1626; --accept-line: #22406B; --accept-ink: #7FB3E8;
+  }
+}
+* { margin: 0; padding: 0; box-sizing: border-box; border-radius: 0; }
+body { background: var(--canvas); font-family: 'Geist', system-ui, sans-serif;
+  color: var(--ink); display: flex; justify-content: center; padding: 24px; }
+.vignette { width: 960px; }
+.frame { background: var(--surface); border: 1px solid var(--line); padding: 20px 22px 18px; }
+.head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+h2 { font-size: 15px; font-weight: 600; letter-spacing: 0.01em; text-transform: uppercase; }
+.head .tag { font-family: 'Geist Mono', monospace; font-size: 11px; color: var(--muted); }
+
+/* the question is the hero: it types itself, cursor while typing */
+.ask { display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  margin: 12px 0 12px; padding: 14px 16px; border: 1px solid var(--line);
+  background: var(--lane); min-height: 58px; }
+.ask .q { font-family: 'Geist Mono', monospace; font-size: 17px; color: var(--ink); }
+.ask .q b { color: var(--navy); font-weight: 500; }
+.ask .cursor { display: inline-block; width: 9px; height: 19px; margin-left: 2px;
+  background: var(--navy); vertical-align: -3px; }
+.ask .gate { font-family: 'Geist Mono', monospace; font-size: 11px; color: var(--muted);
+  white-space: nowrap; }
+
+.stage { position: relative; display: flex; gap: 10px; height: 420px; }
+.lane { flex: 1 1 0; border: 1px solid var(--line-soft); background: var(--lane);
+  position: relative; min-width: 0; }
+.lane-head { display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 12px 0; position: relative; z-index: 1; }
+.lane-head .t { font-size: 12px; font-weight: 600; letter-spacing: 0.05em;
+  text-transform: uppercase; color: var(--muted); }
+.lane-head .n { font-family: 'Geist Mono', monospace; font-size: 13px; color: var(--sky);
+  min-width: 16px; text-align: right; }
+.lane.accept { background: var(--accept-bg); border-color: var(--accept-line); }
+.lane.accept .t, .lane.accept .n { color: var(--accept-ink); }
+#review-note { position: absolute; left: 12px; right: 12px; top: 268px;
+  font-family: 'Geist Mono', monospace; font-size: 11px; line-height: 1.8;
+  color: var(--muted); z-index: 1; }
+#review-note .rc { color: var(--ink); }
+
+.ticket { position: absolute; left: 0; top: 0; padding: 10px 12px 9px;
+  border: 1px solid var(--line); background: var(--card);
+  transition: transform 650ms cubic-bezier(0.16,1,0.3,1), opacity 350ms ease;
+  z-index: 2; }
+.ticket .req { font-size: 12px; line-height: 1.35; color: var(--muted); height: 33px;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden; }
+.ticket .val { font-family: 'Geist Mono', monospace; font-size: 23px; font-weight: 500;
+  color: var(--ink); line-height: 1.3; }
+.ticket .val small { font-size: 11px; color: var(--muted); font-weight: 400; margin-left: 5px; }
+.ticket .ans { font-family: 'Geist Mono', monospace; font-size: 13px; color: var(--muted);
+  min-height: 18px; white-space: nowrap; }
+.ticket .ans .pct { opacity: 0; transition: opacity 200ms ease; }
+.ticket .ans .vd { opacity: 0; transition: opacity 250ms ease; }
+.ticket .ans .vd b { font-weight: 500; }
+.ticket.scored .ans .pct { opacity: 1; }
+.ticket.yes .vd { color: var(--accept-ink); }
+.ticket.verdict .ans .vd { opacity: 1; }
+.ticket.yes { border-color: var(--accept-line); }
+.ticket.hold { border-color: var(--sky); }
+
+.stats { display: flex; border-top: 1px solid var(--line-soft); margin-top: 14px; padding-top: 13px; }
+.stat { flex: 1 1 0; }
+.stat + .stat { border-left: 1px solid var(--line-soft); padding-left: 16px; margin-left: 16px; }
+.stat .v { font-family: 'Geist Mono', monospace; font-size: 20px; color: var(--navy); }
+.stat .l { font-size: 11px; color: var(--muted); margin-top: 3px; }
+</style>
+<script>
+const h = location.hash;
+if (h.includes("light")) document.documentElement.classList.add("force-light");
+if (h.includes("hold")) window.__hold = true;   /* QA: populated hold state, frozen */
+</script>
+</head>
+<body>
+<div class="vignette">
+  <div class="frame">
+    <div class="head"><h2>Stock alerts</h2><span class="tag">Gjusev/MK-SH-1 &middot; v1.2 &middot; illustrative scores</span></div>
+    <div class="ask">
+      <span class="q"><span id="qtext"></span><span class="cursor" id="qcur"></span></span>
+      <span class="gate">softmax at T 7.653 &middot; p &lt; 0.79 &rarr; review</span>
+    </div>
+    <div class="stage">
+      <div class="lane"><div class="lane-head"><span class="t">Stock</span><span class="n">5</span></div></div>
+      <div class="lane accept"><div class="lane-head"><span class="t">Alert</span><span class="n" data-count="P">0</span></div></div>
+      <div class="lane"><div class="lane-head"><span class="t">Healthy</span><span class="n" data-count="N">0</span></div></div>
+      <div class="lane"><div class="lane-head"><span class="t">Review</span><span class="n" data-count="R">0</span></div>
+        <div id="review-note">choice = null<br>reason_code =<br><span class="rc">below_validated_threshold</span><br>0.526 &lt; 0.79 &rarr; human</div>
+      </div>
+    </div>
+    <div class="stats">
+      <div class="stat"><div class="v" data-countup="0.979" data-decimals="3">0.000</div><div class="l">testC, known thresholds &middot; E35</div></div>
+      <div class="stat"><div class="v" data-countup="0.875" data-decimals="3">0.000</div><div class="l">E-extrap, fresh extremes &middot; E35</div></div>
+      <div class="stat"><div class="v" data-countup="4.86" data-decimals="2" data-suffix="%">0%</div><div class="l">selective risk at the gate &middot; E36</div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* Illustrative scores through the shipped formula: softmax over two scores
+   at T = 7.653133, gate at tau = 0.79 (E36). Not measured outputs. */
+const T = 7.653133, TAU = 0.79;
+const sigmoid = z => 1 / (1 + Math.exp(-z / T));
+
+const QUESTION = 'is stock_units ≥ reorder point?  →  alert on No';
+const TICKETS = [
+  { id: 'BRG-6204', req: 'bearing, line 2 · bin B4', eur: 12, z: -26.0, lane: 'P', unit: 'units · rop 40' },
+  { id: 'SEL-S7', req: 'door seal, line 1 · bin A2', eur: 18, z: -13.0, lane: 'P', unit: 'units · rop 25' },
+  { id: 'GSK-F2', req: 'gasket, press · bin C1', eur: 55, z: -0.8, lane: 'R', unit: 'units · rop 60' },
+  { id: 'FLT-M11', req: 'filter, HVAC · roof unit', eur: 88, z: 15.0, lane: 'N', unit: 'units · rop 60' },
+  { id: 'BLT-A38', req: 'belt, conveyor 3 · bin D7', eur: 130, z: 20.0, lane: 'N', unit: 'units · rop 90' },
+];
+const LANES = { Q: 0, P: 1, N: 2, R: 3 };
+const laneEls = [...document.querySelectorAll('.lane')];
+const counts = Object.fromEntries([...document.querySelectorAll('[data-count]')]
+  .map(el => [el.dataset.count, el]));
+
+const stage = document.querySelector('.stage');
+const nodes = TICKETS.map(t => {
+  const el = document.createElement('div');
+  el.className = 'ticket';
+  const pYes = sigmoid(t.z), pNo = 1 - pYes;
+  const p = Math.max(pYes, pNo), said = pYes >= pNo ? 'Yes' : 'No';
+  if (said === 'Yes') el.classList.add('yes');
+  if (t.lane === 'R') el.classList.add('hold');
+  const word = t.lane === 'R' ? 'review' : (t.lane === 'P' ? 'alert' : 'healthy');
+  el.innerHTML = `<div class="req">${t.id} &middot; ${t.req}</div>
+    <div class="val">${t.eur}<small>${t.unit}</small></div>
+    <div class="ans"><span class="pct"></span> <span class="vd">=&gt; <b>${word}</b></span></div>`;
+  el.style.opacity = 0;
+  stage.appendChild(el);
+  return { el, t, lane: 0, slot: 0, p, said, word };
+});
+
+function place(n) {
+  n.el.style.width = (laneEls[0].offsetWidth - 22) + 'px';
+  const x = laneEls[n.lane].offsetLeft + 11;
+  const y = n.lane === 3 ? 124 : 60 + n.slot * 112;
+  n.el.style.transform = `translate(${x}px, ${y}px)`;
+}
+const used = { P: 0, N: 0, R: 0 };
+
+/* typed question (28ms/char), then per card: appear -> percentage counts up
+   -> verdict word -> fly to its lane. Calm loop, drain, retype. */
+const TYPE_MS = 24, STEP = 2000;
+let timers = [];
+function clearTimers() { timers.forEach(clearTimeout); timers = []; }
+const at = (ms, fn) => timers.push(setTimeout(fn, ms));
+
+function typeQuestion() {
+  const el = document.getElementById('qtext'), cur = document.getElementById('qcur');
+  cur.style.display = 'inline-block';
+  if (window.__hold) { el.textContent = QUESTION; cur.style.display = 'none'; return; }
+  el.textContent = '';
+  for (let i = 1; i <= QUESTION.length; i++)
+    at(i * TYPE_MS, () => {
+      el.textContent = QUESTION.slice(0, i);
+      if (i === QUESTION.length) cur.style.display = 'none';
+    });
+}
+
+function countPct(n) {
+  const el = n.el.querySelector('.pct');
+  n.el.classList.add('scored');
+  if (window.__hold) { el.textContent = `p ${n.p.toFixed(3)}`; return; }
+  const t0 = performance.now();
+  const tick = now => {
+    const k = Math.min((now - t0) / 450, 1), e = 1 - Math.pow(1 - k, 3);
+    el.textContent = `p ${(n.p * e).toFixed(3)}`;
+    if (k < 1) requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
+
+function schedule() {
+  nodes.forEach((n, i) => {
+    const t0 = 2200 + i * STEP;
+    at(t0, () => { n.el.style.opacity = 1; place(n); });
+    at(t0 + 500, () => countPct(n));
+    at(t0 + 1050, () => n.el.classList.add('verdict'));
+    at(t0 + 1400, () => {
+      n.lane = LANES[n.t.lane];
+      n.slot = n.lane > 0 ? used[n.t.lane]++ : 0;
+      place(n);
+      if (n.lane > 0) counts[n.t.lane].textContent = String(used[n.t.lane]);
+    });
+  });
+}
+
+function resetCycle() {
+  used.P = used.N = used.R = 0;
+  nodes.forEach(n => {
+    n.lane = 0; n.slot = 0;
+    n.el.classList.remove('scored', 'verdict');
+    n.el.querySelector('.pct').textContent = '';
+    place(n);
+  });
+  Object.values(counts).forEach(el => el.textContent = '0');
+}
+
+if (window.__hold) {
+  /* QA still / GIF poster frame: the FINAL routed state, frozen */
+  typeQuestion();
+  resetCycle();
+  nodes.forEach(n => {
+    n.el.style.opacity = 1;
+    countPct(n);
+    n.el.classList.add('verdict');
+    n.lane = LANES[n.t.lane];
+    n.slot = n.lane > 0 ? used[n.t.lane]++ : 0;
+    place(n);
+    if (n.lane > 0) counts[n.t.lane].textContent = String(used[n.t.lane]);
+  });
+} else {
+  function cycle() {
+    clearTimers();
+    resetCycle();
+    typeQuestion();
+    schedule();
+    at(2200 + TICKETS.length * STEP + 3200, () => {
+      nodes.forEach((n, i) => timers.push(setTimeout(() => { n.el.style.opacity = 0; }, i * 70)));
+    });
+    at(2200 + TICKETS.length * STEP + 4300, cycle);
+  }
+  cycle();
+}
+
+/* count-up on the stats strip: one-shot entrance, 900ms, ease-out */
+document.querySelectorAll('[data-countup]').forEach(el => {
+  const end = parseFloat(el.dataset.countup), dec = +(el.dataset.decimals || 0);
+  const suf = el.dataset.suffix || '';
+  if (window.__hold) { el.textContent = end.toFixed(dec) + suf; return; }
+  const t0 = performance.now();
+  const tick = now => {
+    const k = Math.min((now - t0) / 900, 1), e = 1 - Math.pow(1 - k, 3);
+    el.textContent = (end * e).toFixed(dec) + suf;
+    if (k < 1) requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+});
+</script>
+</body>
+</html>

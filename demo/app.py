@@ -126,12 +126,16 @@ def render_question(question):
 CSS = """
 @import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap');
 
+:root { color-scheme: light; }
+html, body { background: #F7F6F3 !important; }
 .gradio-container { max-width: 880px; margin: 0 auto; padding: 56px 24px 72px !important;
   background: #F7F6F3; font-family: 'Geist', system-ui, sans-serif; color: #111111; }
 .gradio-container .footer, .footer { display: none !important; }
+#hero .brand { display: flex; align-items: flex-start; gap: 20px; margin-bottom: 14px; }
+#hero .brand img { border-radius: 10px; display: block; }
 #hero h1 { font-family: 'Newsreader', Georgia, serif; font-weight: 500; letter-spacing: -0.02em;
-  font-size: 44px; line-height: 1.05; margin: 0 0 12px; }
-#hero .sub { font-size: 16px; line-height: 1.55; color: #787774; max-width: 560px; margin: 0 0 16px; }
+  font-size: 44px; line-height: 1.05; margin: 0 0 10px; }
+#hero .sub { font-size: 16px; line-height: 1.55; color: #787774; max-width: 560px; margin: 0; }
 #hero .meta { font-family: 'Geist Mono', monospace; font-size: 12.5px; color: #787774; margin: 0; }
 .num, .code { font-family: 'Geist Mono', monospace; font-size: 0.94em; }
 .code { background: transparent; color: inherit; }
@@ -167,6 +171,8 @@ button.primary:active { transform: scale(0.98); }
   font-size: 13px; line-height: 1.5; opacity: 0.85; }
 .q-asked { font-size: 13.5px; color: #787774; margin-top: 18px; }
 
+.vignette { width: 100%; height: 700px; border: none; border-radius: 12px; }
+
 .examples { margin-top: 40px; }
 .examples .table { border-radius: 12px; border: 1px solid #EAEAEA; background: #FFFFFF; }
 .examples button.secondary, .examples .table-row { background: transparent !important; box-shadow: none !important; }
@@ -192,10 +198,16 @@ button.primary:active { transform: scale(0.98); }
 def build():
     hero = """
     <header id="hero" class="rise">
-      <h1>MK-SH-1</h1>
-      <p class="sub">A decision model that reads a value from the state and answers a
-      threshold question. It returns calibrated probabilities, a choice, and a refusal
-      when its confidence is too low.</p>
+      <div class="brand">
+        <img src="/gradio_api/file=assets/logo-mark.png" alt="MK-SH-1 mark"
+             width="112" height="56">
+        <div>
+          <h1>MK-SH-1</h1>
+          <p class="sub">A decision model that reads a value from the state and answers a
+          threshold question. It returns calibrated probabilities, a choice, and a refusal
+          when its confidence is too low.</p>
+        </div>
+      </div>
       <p class="meta">v1.2 &middot; 140M parameters &middot; T = 7.653133 &middot;
       tau = 0.79 &middot; loads from Gjusev/MK-SH-1</p>
     </header>
@@ -210,7 +222,12 @@ def build():
       question is computable from the state.</div>
     </footer>
     """
-    with gr.Blocks(css=CSS, title="MK-SH-1 demo") as demo:
+    gr.set_static_paths(paths=["assets", "usecases"])
+    # the MAREA identity is a light editorial surface: keep the whole app
+    # light on dark devices instead of a half-adapted mix (declared choice)
+    force_light = ("try{localStorage.setItem('gradio_theme','light')}catch(e){};"
+                   "document.querySelectorAll('.dark').forEach(e=>e.classList.remove('dark'));")
+    with gr.Blocks(css=CSS, title="MK-SH-1 demo", js=force_light) as demo:
         gr.HTML(hero)
         with gr.Column(elem_classes=["panel", "rise", "d1"]):
             gr.HTML('<span class="kicker">Decision input</span>')
@@ -234,6 +251,14 @@ def build():
                         fn=decide, outputs=[out_probs, out_verdict, out_question],
                         cache_examples=False,
                         examples_per_page=3)
+        gr.HTML('<span class="kicker">Use cases (illustrative)</span>')
+        with gr.Tabs():
+            for tab_label, src in (("Support triage", "usecases/triage-soporte.html"),
+                                   ("Lead qualification", "usecases/lead-qual.html"),
+                                   ("Stock alerts", "usecases/stock-alerts.html")):
+                with gr.Tab(tab_label):
+                    gr.HTML(f'<iframe class="vignette" src="/gradio_api/file={src}#light" '
+                            'title="MK-SH-1 use case vignette" loading="lazy"></iframe>')
         gr.HTML(foot)
     return demo
 

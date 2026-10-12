@@ -55,6 +55,13 @@ flowchart LR
 
 ## Use cases
 
+![MK-SH-1 triaging a support queue: the question types in, each ticket is
+scored, and a borderline ticket is routed to human review](demo/usecases/mksh-triage.gif)
+
+<p align="center"><sub>Illustrative scores through the shipped formula
+(softmax at the fitted temperature, gate at tau). The decision contract at
+work: question in, calibrated probability out, refusal below the gate.</sub></p>
+
 Each case names the measured capability it rests on, and where that
 measurement stops.
 
