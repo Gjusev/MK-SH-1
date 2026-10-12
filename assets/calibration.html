@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Calibration before and after the temperature fit</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap');
+
+:root {
+  --canvas: #F1EFEA; --surface: #FFFFFF; --line: #D9D6CF; --ink: #14202F;
+  --muted: #667081; --bar: #1B2A41; --bar-soft: #AEB9C9; --accent: #2F6238;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not(.force-light) {
+    --canvas: #07080B; --surface: #0C0F14; --line: #232B39; --ink: #E9EDF3;
+    --muted: #8494AC; --bar: #6FA3E8; --bar-soft: #24324A; --accent: #7FB3E8;
+  }
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: var(--canvas); font-family: 'Geist', system-ui, sans-serif;
+  color: var(--ink); display: flex; justify-content: center; padding: 26px; }
+.sheet { width: 1020px; }
+.head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  margin-bottom: 4px; }
+h2 { font-size: 15px; font-weight: 600; letter-spacing: 0.01em; text-transform: uppercase; }
+.head .tag { font-family: 'Geist Mono', monospace; font-size: 10.5px; color: var(--muted); }
+
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 26px 40px; margin-top: 18px; }
+.panel h3 { font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+  display: flex; justify-content: space-between; align-items: baseline;
+  border-bottom: 1px solid var(--line); padding-bottom: 8px; margin-bottom: 14px; }
+.panel h3 .hint { font-family: 'Geist Mono', monospace; font-size: 10px; font-weight: 400;
+  letter-spacing: 0; color: var(--muted); text-transform: none; }
+.brow { display: grid; grid-template-columns: 148px 1fr 118px; align-items: center;
+  gap: 12px; margin-bottom: 12px; }
+.brow .lbl { text-align: right; }
+.brow .lbl .n { font-size: 12.5px; font-weight: 500; line-height: 1.25; }
+.brow .lbl .h { font-family: 'Geist Mono', monospace; font-size: 9px; color: var(--muted);
+  display: block; margin-top: 1px; }
+.brow .track { position: relative; height: 26px; }
+.brow .fill { position: absolute; left: 0; }
+.brow .fill.soft { top: 0; height: 55%; background: var(--bar-soft); }
+.brow .fill.acc { bottom: 0; height: 45%; background: var(--accent); }
+.brow .v { font-family: 'Geist Mono', monospace; font-size: 12.5px; }
+.brow .v .arrow { color: var(--muted); }
+
+.foot { margin-top: 24px; padding-top: 12px; border-top: 1px solid var(--line);
+  font-size: 11px; color: var(--muted); line-height: 1.7; }
+.foot b { color: var(--ink); font-weight: 500; }
+</style>
+<script>if(location.hash==="#light")document.documentElement.classList.add("force-light")</script>
+</head>
+<body>
+<div class="sheet">
+  <div class="head"><h2>Calibration, before and after the temperature fit (E36)</h2>
+    <span class="tag">one scalar, T = 7.653 &middot; light soft = before T=1, dark accent = after</span></div>
+
+  <div class="grid">
+    <div class="panel">
+      <h3>NLL <span class="hint">lower is better</span></h3>
+      <div class="brow"><span class="lbl"><span class="n">e36-calib split</span><span class="h">fitted, n=480</span></span>
+        <div class="track"><div class="fill soft" style="width:33.8%"></div><div class="fill acc" style="width:7.5%"></div></div>
+        <span class="v">0.879 <span class="arrow">&rarr;</span> 0.196</span></div>
+      <div class="brow"><span class="lbl"><span class="n">known thresholds</span><span class="h">n=48</span></span>
+        <div class="track"><div class="fill soft" style="width:8.7%"></div><div class="fill acc" style="width:2.4%"></div></div>
+        <span class="v">0.225 <span class="arrow">&rarr;</span> 0.062</span></div>
+      <div class="brow"><span class="lbl"><span class="n">new thresholds</span><span class="h">n=54</span></span>
+        <div class="track"><div class="fill soft" style="width:24.5%"></div><div class="fill acc" style="width:4.8%"></div></div>
+        <span class="v">0.636 <span class="arrow">&rarr;</span> 0.126</span></div>
+      <div class="brow"><span class="lbl"><span class="n">monotonicity</span><span class="h">n=60</span></span>
+        <div class="track"><div class="fill soft" style="width:35.4%"></div><div class="fill acc" style="width:7.4%"></div></div>
+        <span class="v">0.921 <span class="arrow">&rarr;</span> 0.192</span></div>
+      <div class="brow"><span class="lbl"><span class="n">fresh OOD</span><span class="h">eval E, n=202</span></span>
+        <div class="track"><div class="fill soft" style="width:84.0%"></div><div class="fill acc" style="width:15.9%"></div></div>
+        <span class="v">2.183 <span class="arrow">&rarr;</span> 0.414</span></div>
+      <div class="brow"><span class="lbl"><span class="n">routing task</span><span class="h">own task, n=300</span></span>
+        <div class="track"><div class="fill soft" style="width:97.5%"></div><div class="fill acc" style="width:22.6%"></div></div>
+        <span class="v">2.535 <span class="arrow">&rarr;</span> 0.588</span></div>
+    </div>
+
+    <div class="panel">
+      <h3>ECE, 15 bins <span class="hint">lower is better</span></h3>
+      <div class="brow"><span class="lbl"><span class="n">e36-calib split</span><span class="h">fitted, n=480</span></span>
+        <div class="track"><div class="fill soft" style="width:36.5%"></div><div class="fill acc" style="width:8.1%"></div></div>
+        <span class="v">0.073 <span class="arrow">&rarr;</span> 0.016</span></div>
+      <div class="brow"><span class="lbl"><span class="n">known thresholds</span><span class="h">n=48</span></span>
+        <div class="track"><div class="fill soft" style="width:11.8%"></div><div class="fill acc" style="width:21.0%"></div></div>
+        <span class="v">0.024 <span class="arrow">&rarr;</span> 0.042</span></div>
+      <div class="brow"><span class="lbl"><span class="n">new thresholds</span><span class="h">n=54</span></span>
+        <div class="track"><div class="fill soft" style="width:18.5%"></div><div class="fill acc" style="width:17.4%"></div></div>
+        <span class="v">0.037 <span class="arrow">&rarr;</span> 0.035</span></div>
+      <div class="brow"><span class="lbl"><span class="n">monotonicity</span><span class="h">n=60</span></span>
+        <div class="track"><div class="fill soft" style="width:16.7%"></div><div class="fill acc" style="width:13.0%"></div></div>
+        <span class="v">0.033 <span class="arrow">&rarr;</span> 0.026</span></div>
+      <div class="brow"><span class="lbl"><span class="n">fresh OOD</span><span class="h">eval E, n=202</span></span>
+        <div class="track"><div class="fill soft" style="width:45.8%"></div><div class="fill acc" style="width:38.0%"></div></div>
+        <span class="v">0.092 <span class="arrow">&rarr;</span> 0.076</span></div>
+      <div class="brow"><span class="lbl"><span class="n">routing task</span><span class="h">own task, n=300</span></span>
+        <div class="track"><div class="fill soft" style="width:92.2%"></div><div class="fill acc" style="width:22.5%"></div></div>
+        <span class="v">0.184 <span class="arrow">&rarr;</span> 0.045</span></div>
+    </div>
+  </div>
+
+  <div class="foot">
+    <b>Split fitted once</b> (480 questions); evals descriptive, never refitted. Known-thresholds is
+    the easiest set: the single global scalar slightly over-softens it (ECE 0.024 to 0.042), the
+    declared cost of one scalar. <b>Source:</b> E36.
+  </div>
+</div>
+</body>
+</html>

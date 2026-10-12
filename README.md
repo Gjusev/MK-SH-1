@@ -55,12 +55,13 @@ flowchart LR
 
 ## Use cases
 
-![MK-SH-1 triaging a support queue: the question types in, each ticket is
-scored, and a borderline ticket is routed to human review](demo/usecases/mksh-triage.gif)
+<video src="https://raw.githubusercontent.com/Gjusev/MK-SH-1/main/demo/usecases/mksh-triage.mp4" autoplay muted loop playsinline width="100%"></video>
 
 <p align="center"><sub>Illustrative scores through the shipped formula
 (softmax at the fitted temperature, gate at tau). The decision contract at
-work: question in, calibrated probability out, refusal below the gate.</sub></p>
+work: question in, calibrated probability out, refusal below the gate.
+Prefer a still? The [GIF](demo/usecases/mksh-triage.gif) and the
+[interactive demo](https://huggingface.co/spaces/Gjusev/MK-SH-1-demo) are both up.</sub></p>
 
 Each case names the measured capability it rests on, and where that
 measurement stops.
@@ -94,6 +95,15 @@ measurement stops.
    to teach one new capability without catastrophic forgetting, demonstrated
    at 140M scale. Bound: one capability, one model family; the recipe is not
    claimed to generalize beyond what the campaign measured.
+
+## Calibration and abstention (E36)
+
+![Calibration before and after the temperature fit across the split and the frozen eval sets](assets/calibration.png)
+
+The temperature was fitted once, on 480 fresh questions, and it is monotone:
+it changes no choices, only confidences. The abstention gate at tau = 0.79
+keeps 90 % coverage at 4.86 % selective risk; below the gate the model returns
+choice = null with reason_code below_validated_threshold.
 
 ## How the capability was built
 
