@@ -57,9 +57,8 @@ flowchart LR
 <p align="center"><sub>&#9654; the 18-second presentation cut &mdash; silent, light theme, the decision contract at work. Tap the frame to play.</sub></p>
 
 <p align="center"><sub>Illustrative scores through the shipped formula
-(softmax at the fitted temperature, gate at tau). The decision contract at
-work: question in, calibrated probability out, refusal below the gate.
-The silent 20-second film is the project&rsquo;s `/brag` render. Try the
+(softmax at the fitted temperature, gate at tau): question in, calibrated
+probability out, refusal below the gate. Try the
 [interactive demo](https://huggingface.co/spaces/Gjusev/MK-SH-1-demo) to run
 the checkpoint yourself.</sub></p>
 
