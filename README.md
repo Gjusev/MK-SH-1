@@ -8,7 +8,10 @@ campaign (E24–E34, 2026-10-10/11) that taught it a capability it did not have
 and audited every step of that claim.
 Public model: **[Gjusev/MK-SH-1](https://huggingface.co/Gjusev/MK-SH-1)**
 (formerly mokka-1) — the validated numeric-order version (144M params, fp32
-safetensors, Apache-2.0).
+safetensors, Apache-2.0). v1.2 ships calibrated probabilities (T = 7.653)
+and a validated abstention policy (τ = 0.79, 90 % coverage at ≤ 5 %
+selective risk) on weights byte-identical to v1.1 — fitted, not retrained
+(E36).
 
 **The surviving differentiator** (E32/E34, same CPU-float32 harness): the
 integrated MOKKA version holds a newly-acquired capability (numeric order)
@@ -145,7 +148,7 @@ it refines by which task is at stake.
 
 ```bash
 pip install -e .[data,train,baselines]
-python -m pytest -q                    # suite: 195 pass (default env)
+python -m pytest -q                    # suite: 200 pass (default env)
 # .venv-julia (transformers==5.0.0): 194 pass + 1 skip
 python scripts/prepare_data.py --config configs/pilot.yaml --out data/processed/v1   # deterministic
 python scripts/gen_e25_thrvar.py && python scripts/verify_e25_thrvar.py              # data + independent verifier
@@ -170,6 +173,8 @@ Git by standing instruction.
 - `docs/typed-decisions-protocol.md` — the typed-decisions contract
 
 ## License
+
+Built by **Youssef Ouhaghi Ahmian** ([@Gjusev](https://github.com/Gjusev)).
 
 Apache-2.0 for code. Datasets and third-party models keep their own licenses
 (`THIRD_PARTY_NOTICES.md`).
