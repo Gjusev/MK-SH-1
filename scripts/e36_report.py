@@ -209,9 +209,10 @@ def main() -> int:
 
     policy = {
         "format_version": 1,
-        "model": {"id": MODEL_ID, "version": "1.2",
+        "model": {"id": MODEL_ID,
                   "weights_sha256": WEIGHTS_SHA,
-                  "weights_note": "identical to v1.1 (E35 s42 final); v1.2 adds calibration + policy only"},
+                  "weights_note": "trained in E35 (E24-E35 campaign); temperature and abstention "
+                                  "fitted in E36 on a frozen split, no retraining"},
         "temperature": {"value": t_star,
                         "scope": "single global scalar over option logits before softmax (all question types)",
                         "fitted_on": {"set": "e36-calib", "n": len(sets["split"]),

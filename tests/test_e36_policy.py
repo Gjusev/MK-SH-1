@@ -94,8 +94,9 @@ def test_inference_policy_json_structure():
         pytest.skip("v1.2 export not assembled locally")
     p = json.loads((EXPORT / "inference-policy.json").read_text(encoding="utf-8"))
     assert p["format_version"] == 1
-    assert p["model"]["id"] == "Gjusev/MK-SH-1" and p["model"]["version"] == "1.2"
+    assert p["model"]["id"] == "Gjusev/MK-SH-1"
     assert p["model"]["weights_sha256"].startswith("ea66cdde")
+    assert "no retraining" in p["model"]["weights_note"]
     assert p["temperature"]["value"] > 1.0  # fitted, not defaulted
     assert p["abstention"]["enabled"] and p["abstention"]["threshold"] is not None
     assert p["abstention"]["reason_code"] == "below_validated_threshold"
