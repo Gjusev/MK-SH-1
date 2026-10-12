@@ -128,7 +128,7 @@ CSS = """
 
 :root { color-scheme: light; }
 html, body { background: #F7F6F3 !important; }
-.gradio-container { max-width: 880px; margin: 0 auto; padding: 56px 24px 72px !important;
+.gradio-container { max-width: 1080px; margin: 0 auto; padding: 56px 24px 72px !important;
   background: #F7F6F3; font-family: 'Geist', system-ui, sans-serif; color: #111111; }
 .gradio-container .footer, .footer { display: none !important; }
 #hero .brand { display: flex; align-items: flex-start; gap: 20px; margin-bottom: 14px; }
@@ -171,7 +171,7 @@ button.primary:active { transform: scale(0.98); }
   font-size: 13px; line-height: 1.5; opacity: 0.85; }
 .q-asked { font-size: 13.5px; color: #787774; margin-top: 18px; }
 
-.vignette { width: 100%; height: 700px; border: none; border-radius: 12px; }
+.vignette { width: 100%; height: 740px; border: none; border-radius: 12px; }
 
 .examples { margin-top: 40px; }
 .examples .table { border-radius: 12px; border: 1px solid #EAEAEA; background: #FFFFFF; }

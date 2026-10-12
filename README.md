@@ -119,23 +119,21 @@ Full entries with all caveats: `docs/experiments.md`. All criteria were frozen
 and committed **before** each launch; every closure was adversarially reviewed
 by an independent agent or session and every correction integrated.
 
-| # | Question | Result | Key commits |
+One row per beat, commits included; the full per-experiment entries with
+every caveat live in `docs/experiments.md`. Criteria were frozen and
+committed before each launch; closures were adversarially reviewed and every
+correction integrated.
+
+| Beat | Experiments | Outcome | Key commits |
 |---|---|---|---|
-| E24 | Can the model *fit* a 48-problem numeric microset? | Yes, 2/2 seeds in <60 steps; generalizes to new values and renamed field; does NOT read a varied threshold | `f65bfb9f` `ca4644f4` |
-| E25 | Does varying thresholds in training teach reading them? | Yes: testC 1.000 both seeds, 10/10 threshold-only pairs (later qualified: a decade shortcut fit the same data) | `ab8061ee` `99e8d4b3` |
-| E26 | Does breaking the decade shortcut yield real order? | No: no arm passes; decade-heuristic signature dominates | `e175b757` `7e4fbe6b` |
-| E26b/c | Stopping rule? Seed variance? | Duration dead (continuation overfits); 6-seed sub-0.90 ceiling replicated | `b4201d5e` `a9b2983d` |
-| E27 | Does dense per-value coverage break the ceiling? | **Yes**: testC 0.979/1.000, order transfers to fresh 2-decimal OOD (interp); extrap + monotonicity declared weak | `aabab22a` `a9b2983d` |
-| E28 | Extremes + monotone chains close the residuals? | Massive moves (extrap +18/+20 pp, mono 7·9/10) but not in both seeds; interference reading fires, stop-and-rethink honored | `0a9ac914` `9e3be0bc` |
-| E28b | Seed check of the edge trade | testC 1.000 both new seeds; jitter at bars, not a systematic trade | `f3e05cae` |
-| E29/E29b | Forgetting: does replay protect the capability? | No catastrophe either direction; with replay the interference drops to ~1/4 to 1/3 of no-replay and monotonicity survives; task 0.157 → 0.690/0.713 | `37d4fd01` `db9baa24` |
-| E30 | Independent validation, disjoint sample | F1″ passes: testC 0.979, E-interp 0.922 (8/8 pairs), task 0.733; integration not sample-specific | `d5347639` `468aac20` |
-| E31 | Julia-1 on our grid, same-data comparison | **Closure invalidated** (evaluator binding bug), see the correction arc below | `d72b3066` `752b8f3f` |
-| E32 | Honest head-to-head, one harness | A-MIXTO: adapted Julia leads numeric transfer at testC=1 row; Mokka wins monotonicity; Julia's own task −13.6/−19.0 pp, Mokka's task +57 pp | `8d757b00` `efdca880` |
-| E33 | Valid re-run of E31 with the fixed pipeline | Pipeline confirmed end-to-end (live dev curves); corrective numbers replicated; thr-pairs and VE2 fail the registered bars | `d6b34eae` `874785c3` |
-| E34 | Can Julia keep task AND order with replay? | Proxy-task + order: yes (0.83/0.83, testC 1.000, E-interp 0.94/0.98). Its **real** task degrades −27/−24 pp, worse than without replay | `f381940f` `ee581a76` |
-| E35 | Extremes WITH replay protection, never tried together | E-extrap 0.750 → **0.875/0.857**, both seeds pass all five bars, task improves to 0.800/0.783; became v1.1 | `cd972b4f` `04e49d9c` |
-| E36 | Calibration + abstention without retraining | T = 7.653 (split NLL 0.879 → 0.196, ECE 0.073 → 0.016); tau = 0.79 at 90 % coverage, 4.86 % selective risk; weights byte-identical; became v1.2 | `169358e7` `583b2396` |
+| Fit a numeric microset at all | E24 | Yes, 2/2 seeds in <60 steps | `f65bfb9f` `ca4644f4` |
+| Threshold variation teaches a shortcut, not order | E25, E26, E26b/c | Decade shortcut fits the same data; breaking it kills the pass; ceiling replicated across 6 seeds | `ab8061ee` `e175b757` `b4201d5e` |
+| Dense per-value coverage teaches real order | E27 | testC 0.979/1.000, transfers to fresh 2-decimal OOD; extrap + monotonicity declared weak | `aabab22a` `a9b2983d` |
+| Extremes alone fail; seed-checked | E28, E28b | Big moves but not in both seeds; interference reading honored | `0a9ac914` `f3e05cae` |
+| Replay protects; disjoint sample confirms | E29, E29b, E30 | No catastrophe; interference ~1/4 of no-replay; F1″ passes independently | `37d4fd01` `d5347639` |
+| The invalid closure and its repair | E31, E33 | Binding bug found, claim retracted publicly, pipeline re-run valid | `d72b3066` `752b8f3f` `d6b34eae` |
+| One-harness comparison, no architecture claims | E32, E34 | Julia transfers edges better but loses its own task faster with replay | `8d757b00` `f381940f` |
+| Edges cracked; calibrated + gated | E35, E36 | E-extrap 0.875/0.857, task 0.800/0.783; T = 7.653, tau = 0.79 at 90% coverage | `cd972b4f` `169358e7` |
 
 ## The surviving differentiator (E32/E34, same CPU-float32 harness)
 
