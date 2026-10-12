@@ -6,33 +6,56 @@
 @font-face{font-family:'Geist Mono';src:url('fonts/geistmono-500.woff2') format('woff2');font-weight:500}
 *{margin:0;padding:0;box-sizing:border-box}
 body{width:1200px;height:630px;background:#F7F6F3;font-family:'Geist',sans-serif;color:#111111;overflow:hidden}
-.page{display:flex;flex-direction:column;height:100%;padding:56px 64px 48px}
-.head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:8px}
+.page{display:flex;flex-direction:column;height:100%;padding:52px 64px 44px}
+.head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px}
 h1{font-weight:700;font-size:40px;letter-spacing:-0.03em}
-.hacc{background:#EDF3EC;color:#346538;font-family:'Geist Mono',monospace;font-size:14px;padding:4px 12px}
-.rule{border-bottom:1px solid #EAEAEA;margin-bottom:22px}
-table{width:100%;border-collapse:collapse}
-th{font-family:'Geist Mono',monospace;font-weight:500;font-size:14.5px;color:#787774;text-align:right;padding:0 0 14px}
-th:first-child{text-align:left}
+.hacc{background:#E9E8E4;color:#5B5A57;font-family:'Geist Mono',monospace;font-size:14px;padding:4px 12px}
+table{width:100%;border-collapse:collapse;margin-top:16px}
+th{font-family:'Geist Mono',monospace;font-weight:500;font-size:14.5px;color:#787774;text-align:right;padding:10px 14px 12px}
+th:first-child{text-align:left;padding-left:0}
 th.own{color:#346538}
-td{border-top:1px solid #EAEAEA;padding:17px 0;font-size:19px;letter-spacing:-0.01em}
-td:not(:first-child){text-align:right;font-family:'Geist Mono',monospace;font-size:17.5px}
-td.own{color:#346538;font-weight:500}
-tr:first-child td{border-top:none}
-.foot{margin-top:auto;display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:13.5px;color:#787774}
+td{border-top:1px solid #EAEAEA;padding:16px 14px;font-size:19px;letter-spacing:-0.01em}
+td:first-child{padding-left:0}
+td:not(:first-child){text-align:right;font-family:'Geist Mono',monospace;font-size:17.5px;color:#5B5A57}
+/* columna propia: tinte claro continuo */
+td.owncol,th.owncol{background:#F1F4F1}
+td.owncol{color:#5B5A57}
+/* celda ganadora: verde pleno + negrita */
+td.win{background:#EDF3EC;color:#346538 !important;font-weight:500;font-size:18.5px}
+/* etiqueta de fila ganadora */
+td.metric-win{color:#111111;font-weight:500}
+/* la fila hero: tarea propia */
+tr.hero td{padding-top:20px;padding-bottom:20px}
+tr.hero td:first-child{font-weight:700;font-size:20.5px}
+tr.hero td.win{font-size:19.5px}
+.foot{margin-top:auto;display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:13.5px;color:#787774;border-top:1px solid #EAEAEA;padding-top:16px}
+.legend{display:flex;gap:18px;align-items:center}
+.sw{display:inline-block;width:12px;height:12px;background:#EDF3EC;border:1px solid #346538;vertical-align:-1px;margin-right:6px}
+.swg{display:inline-block;width:12px;height:12px;background:#E9E8E4;border:1px solid #5B5A57;vertical-align:-1px;margin-right:6px}
 </style></head><body>
 <div class="page">
-  <div class="head"><h1>The honest comparison</h1><span class="hacc">one harness</span></div>
-  <div class="rule"></div>
+  <div class="head"><h1>The honest comparison</h1><span class="hacc">one CPU-float32 harness</span></div>
   <table>
-    <tr><th>metric</th><th>MK-SH-1</th><th>Julia-1 adapted</th><th>Julia-1 + replay</th></tr>
-    <tr><td>Numeric order (testC)</td><td class="own">0.979</td><td>1.000</td><td>1.000</td></tr>
-    <tr><td>OOD extremes</td><td class="own">0.875</td><td>0.911</td><td>-</td></tr>
-    <tr><td>Monotonicity sweeps</td><td class="own">8-10/10</td><td>7/10</td><td>-</td></tr>
-    <tr><td>Its own original task</td><td class="own">0.800 kept</td><td>-13.6 to -19.0 pp</td><td>-27.1 to -23.5 pp</td></tr>
+    <tr><th>metric</th><th class="owncol own" style="text-align:right">MK-SH-1</th><th>Julia-1 adapted</th><th>Julia-1 + replay</th></tr>
+    <tr>
+      <td>Numeric order (testC)</td>
+      <td class="owncol">0.979</td><td>1.000</td><td>1.000</td>
+    </tr>
+    <tr>
+      <td>OOD extremes</td>
+      <td class="owncol">0.875</td><td>0.911</td><td>-</td>
+    </tr>
+    <tr>
+      <td class="metric-win">Monotonicity sweeps</td>
+      <td class="owncol win">8-10/10</td><td>7/10</td><td>-</td>
+    </tr>
+    <tr class="hero">
+      <td class="metric-win">Its own original task</td>
+      <td class="owncol win">0.800 kept</td><td>-13.6 to -19.0 pp</td><td>-27.1 to -23.5 pp</td>
+    </tr>
   </table>
   <div class="foot">
-    <span>one CPU-float32 harness</span>
+    <div class="legend"><span><span class="sw"></span>MK-SH-1 wins</span><span><span class="swg"></span>measured, Julia leads</span></div>
     <span>system comparison - no architecture claims</span>
   </div>
 </div>

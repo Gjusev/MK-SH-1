@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <title>MK-SH-1 social cards</title>
+    <style>
+      @font-face { font-family: "Geist"; src: url("fonts/geist-400.woff2") format("woff2"); font-weight: 400; }
+      @font-face { font-family: "Geist"; src: url("fonts/geist-500.woff2") format("woff2"); font-weight: 500; }
+      @font-face { font-family: "Geist"; src: url("fonts/geist-700.woff2") format("woff2"); font-weight: 700; }
+      @font-face { font-family: "Geist Mono"; src: url("fonts/geistmono-400.woff2") format("woff2"); font-weight: 400; }
+      @font-face { font-family: "Geist Mono"; src: url("fonts/geistmono-500.woff2") format("woff2"); font-weight: 500; }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body { background: #9AA9BC; font-family: Geist, Arial, sans-serif; }
+
+      .card { position: relative; overflow: hidden; background: #F5F9FE; color: #12233A; margin: 40px auto; }
+      .wave { position: absolute; left: -40px; right: -40px; pointer-events: none; }
+      .wave svg { display: block; width: 100%; }
+      .tile { border-radius: 24px; overflow: hidden; box-shadow: 0 18px 50px rgba(28, 42, 68, 0.22), 0 0 0 1px #D7E3F2; }
+      .tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
+      .word { font-weight: 700; letter-spacing: -0.05em; color: #12233A; }
+      .tag { font-family: "Geist Mono", monospace; color: #1F6FEB; }
+      .nums { display: flex; gap: 18px; }
+      .num { background: #FFFFFF; border: 1.5px solid #D7E3F2; border-radius: 14px; padding: 14px 24px; }
+      .num b { display: block; font-size: 34px; font-weight: 700; letter-spacing: -0.03em; color: #12233A; }
+      .num b em { font-style: normal; color: #1F6FEB; }
+      .num span { font-family: "Geist Mono", monospace; font-size: 15px; color: #6B8199; }
+      .url { font-family: "Geist Mono", monospace; color: #1F6FEB; }
+
+      /* wide 1200x627 (LinkedIn) and 1280x640 (GitHub) share the layout */
+      .wide { width: 1200px; height: 627px; }
+      .wide .wave.w1 { top: -60px; }
+      .wide .wave.w2 { bottom: -70px; }
+      .wide .tile { position: absolute; left: 84px; top: 150px; width: 283px; height: 283px; }
+      .wide .word { position: absolute; left: 415px; top: 186px; font-size: 96px; }
+      .wide .tag { position: absolute; left: 420px; top: 306px; font-size: 26px; }
+      .wide .nums { position: absolute; left: 420px; bottom: 118px; }
+      .wide .url { position: absolute; left: 84px; bottom: 52px; font-size: 21px; }
+      .wide .sub { position: absolute; right: 84px; bottom: 52px; font-family: "Geist Mono", monospace; font-size: 17px; color: #6B8199; }
+
+      /* square 1080x1080 */
+      .wide.github { width: 1280px; height: 640px; }
+      .square { width: 1080px; height: 1080px; }
+      .square .wave.w1 { top: 40px; }
+      .square .wave.w2 { bottom: 60px; }
+      .square .tile { position: absolute; left: 390px; top: 200px; width: 300px; height: 300px; }
+      .square .word { position: absolute; left: 0; right: 0; top: 548px; text-align: center; font-size: 120px; }
+      .square .tag { position: absolute; left: 0; right: 0; top: 706px; text-align: center; font-size: 30px; }
+      .square .nums { position: absolute; left: 0; right: 0; top: 790px; justify-content: center; }
+      .square .url { position: absolute; left: 0; right: 0; top: 950px; text-align: center; font-size: 24px; }
+    </style>
+  </head>
+  <body>
+    <div class="card wide" id="wide">
+      <div class="wave w1"><svg viewBox="0 0 1280 180" fill="none" preserveAspectRatio="none"><path d="M0 120 C 300 30 620 30 940 105 C 1160 156 1240 140 1280 120 L1280 0 L0 0 Z" fill="#1F6FEB" opacity="0.07"/></svg></div>
+      <div class="wave w2"><svg viewBox="0 0 1280 170" fill="none" preserveAspectRatio="none"><path d="M0 60 C 300 150 640 150 960 70 C 1130 28 1230 60 1280 90 L1280 170 L0 170 Z" fill="#1F6FEB" opacity="0.06"/></svg></div>
+      <div class="tile"><img src="../logo-mark.png" alt="MK-SH-1 mark"></div>
+      <div class="word">MK-SH-1</div>
+      <div class="tag">calibrated decisions · explicit abstention</div>
+      <div class="nums">
+        <div class="num"><b>&#964; = <em>0.79</em></b><span>abstention gate</span></div>
+        <div class="num"><b>ECE <em>0.016</em></b><span>calibrated</span></div>
+        <div class="num"><b><em>106</em> ms</b><span>CPU · batch 1</span></div>
+      </div>
+      <div class="url">huggingface.co/Gjusev/MK-SH-1</div>
+      <div class="sub">140M · open weights</div>
+    </div>
+
+    <div class="card square" id="square">
+      <div class="wave w1"><svg viewBox="0 0 1080 180" fill="none" preserveAspectRatio="none"><path d="M0 120 C 260 30 540 30 820 105 C 980 148 1040 140 1080 120 L1080 0 L0 0 Z" fill="#1F6FEB" opacity="0.07"/></svg></div>
+      <div class="wave w2"><svg viewBox="0 0 1080 170" fill="none" preserveAspectRatio="none"><path d="M0 60 C 260 150 560 150 840 70 C 980 30 1040 60 1080 90 L1080 170 L0 170 Z" fill="#1F6FEB" opacity="0.06"/></svg></div>
+      <div class="tile"><img src="../logo-mark.png" alt="MK-SH-1 mark"></div>
+      <div class="word">MK-SH-1</div>
+      <div class="tag">calibrated decisions · explicit abstention</div>
+      <div class="nums">
+        <div class="num"><b>&#964; = <em>0.79</em></b><span>gate</span></div>
+        <div class="num"><b>ECE <em>0.016</em></b><span>calibrated</span></div>
+        <div class="num"><b><em>106</em> ms</b><span>CPU</span></div>
+      </div>
+      <div class="url">huggingface.co/Gjusev/MK-SH-1</div>
+    </div>
+    <script>
+      // #wide or #square isolates one card at exact export size
+      const hash = location.hash;
+      if (hash === "#wide") { document.getElementById("square").style.display = "none"; }
+      if (hash === "#square") { document.getElementById("wide").style.display = "none"; }
+      if (hash === "#github") { document.getElementById("square").style.display = "none"; document.getElementById("wide").classList.add("github"); }
+      if (hash) { document.body.style.background = "#F5F9FE"; document.body.style.margin = "0"; }
+      const only = document.querySelector(hash ? ".card:not([style*='none'])" : "nothing");
+      if (only) { only.style.margin = "0"; }
+    </script>
+  </body>
+</html>
