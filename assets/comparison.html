@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MK-SH-1 against the field</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap');
+
+:root {
+  --canvas: #F1EFEA; --surface: #FFFFFF; --line: #D9D6CF; --ink: #14202F;
+  --muted: #667081; --bar: #1B2A41; --bar-soft: #AEB9C9; --accent: #2F6238;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not(.force-light) {
+    --canvas: #07080B; --surface: #0C0F14; --line: #232B39; --ink: #E9EDF3;
+    --muted: #8494AC; --bar: #6FA3E8; --bar-soft: #24324A; --accent: #7FB3E8;
+  }
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: var(--canvas); font-family: 'Geist', system-ui, sans-serif;
+  color: var(--ink); display: flex; justify-content: center; padding: 26px; }
+.sheet { width: 1020px; }
+.head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  margin-bottom: 4px; }
+h2 { font-size: 15px; font-weight: 600; letter-spacing: 0.01em; text-transform: uppercase; }
+.head .tag { font-family: 'Geist Mono', monospace; font-size: 10.5px; color: var(--muted); }
+.lead { font-size: 12.5px; color: var(--muted); margin-bottom: 22px; max-width: 860px; line-height: 1.55; }
+
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 26px 40px; }
+.panel h3 { font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+  display: flex; justify-content: space-between; align-items: baseline;
+  border-bottom: 1px solid var(--line); padding-bottom: 8px; margin-bottom: 14px; }
+.panel h3 .hint { font-family: 'Geist Mono', monospace; font-size: 10px; font-weight: 400;
+  letter-spacing: 0; color: var(--muted); text-transform: none; }
+.brow { display: grid; grid-template-columns: 148px 1fr 58px; align-items: center;
+  gap: 12px; margin-bottom: 12px; }
+.brow .lbl { text-align: right; }
+.brow .lbl .n { font-size: 12.5px; font-weight: 500; line-height: 1.25; }
+.brow .lbl .h { font-family: 'Geist Mono', monospace; font-size: 9px; color: var(--muted);
+  display: block; margin-top: 1px; }
+.brow .track { position: relative; height: 20px; }
+.brow .fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--bar-soft); }
+.brow.us .fill { background: var(--bar); }
+.brow .track .zero { position: absolute; top: -4px; bottom: -4px; width: 1px; background: var(--muted); }
+.brow .v { font-family: 'Geist Mono', monospace; font-size: 12.5px; }
+.brow.us .v { font-weight: 500; }
+.brow .v.na { color: var(--muted); }
+
+.foot { margin-top: 24px; padding-top: 12px; border-top: 1px solid var(--line);
+  font-size: 11px; color: var(--muted); line-height: 1.7; }
+.foot b { color: var(--ink); font-weight: 500; }
+.foot .src { font-family: 'Geist Mono', monospace; font-size: 10px; color: var(--sky); }
+</style>
+<script>if(location.hash==="#light")document.documentElement.classList.add("force-light")</script>
+</head>
+<body>
+<div class="sheet">
+  <div class="head"><h2>MK-SH-1 against the field</h2>
+    <span class="tag">measured numbers only &middot; source under each bar</span></div>
+  <p class="lead">MK-SH-1 in accent, everything else neutral. Speed harnesses differ between the
+  two groups (CPU fp32 for the 140M decision models, T4 GPU for the baselines) so speed compares
+  within a group, not across. GLiNER2.5, Jeff and Clef-Flash were never run here: they stay out
+  of the charts, the attempts are on record.</p>
+
+  <div class="grid">
+    <div class="panel">
+      <h3>Latency, batch 1 <span class="hint">lower is better</span></h3>
+      <div class="brow us"><span class="lbl"><span class="n">MK-SH-1</span><span class="h">CPU fp32, 8 threads</span></span>
+        <div class="track"><div class="fill" style="width:100%"></div></div><span class="v">106 ms</span></div>
+      <div class="brow"><span class="lbl"><span class="n">Julia-1</span><span class="h">same harness &middot; tie</span></span>
+        <div class="track"><div class="fill" style="width:100.3%"></div></div><span class="v">106 ms</span></div>
+      <div class="brow"><span class="lbl"><span class="n">TF-IDF + LR</span><span class="h">T4 GPU</span></span>
+        <div class="track"><div class="fill" style="width:73%"></div></div><span class="v">77 ms</span></div>
+      <div class="brow"><span class="lbl"><span class="n">Laya</span><span class="h">T4 GPU</span></span>
+        <div class="track"><div class="fill" style="width:41%"></div></div><span class="v">43 ms</span></div>
+    </div>
+
+    <div class="panel">
+      <h3>Numeric order, fresh extremes (E-extrap) <span class="hint">higher is better</span></h3>
+      <div class="brow us"><span class="lbl"><span class="n">MK-SH-1 v1.2</span><span class="h">E35, s42</span></span>
+        <div class="track"><div class="fill" style="width:87.5%"></div></div><span class="v">0.875</span></div>
+      <div class="brow"><span class="lbl"><span class="n">Julia-1 adapted</span><span class="h">E32</span></span>
+        <div class="track"><div class="fill" style="width:91.1%"></div></div><span class="v">0.911</span></div>
+      <div class="brow"><span class="lbl"><span class="n">Laya &middot; TF-IDF</span><span class="h">capability not taught</span></span>
+        <div class="track"></div><span class="v na">&mdash;</span></div>
+    </div>
+
+    <div class="panel">
+      <h3>Own task after teaching numeric order <span class="hint">right of zero = recovers</span></h3>
+      <div class="brow us"><span class="lbl"><span class="n">MK-SH-1 v1.2</span><span class="h">0.157 &rarr; 0.800 routing</span></span>
+        <div class="track"><span class="zero" style="left:30%"></span><div class="fill" style="left:30%; width:64.3%"></div></div>
+        <span class="v">+64.3 pp</span></div>
+      <div class="brow"><span class="lbl"><span class="n">Julia-1</span><span class="h">E32, no replay</span></span>
+        <div class="track"><span class="zero" style="left:30%"></span><div class="fill" style="left:13.6%; width:13.6%"></div></div>
+        <span class="v">&minus;13.6 pp</span></div>
+      <div class="brow"><span class="lbl"><span class="n">Julia-1 + replay</span><span class="h">E34</span></span>
+        <div class="track"><span class="zero" style="left:30%"></span><div class="fill" style="left:2.9%; width:27.1%"></div></div>
+        <span class="v">&minus;27.1 pp</span></div>
+      <div class="brow"><span class="lbl"><span class="n">Laya &middot; TF-IDF</span><span class="h">no integration run</span></span>
+        <div class="track"><span class="zero" style="left:30%"></span></div><span class="v na">&mdash;</span></div>
+    </div>
+
+    <div class="panel">
+      <h3>Calibration error (ECE) <span class="hint">lower is better</span></h3>
+      <div class="brow us"><span class="lbl"><span class="n">MK-SH-1 v1.2</span><span class="h">calib split, after T &middot; E36</span></span>
+        <div class="track"><div class="fill" style="width:8.6%"></div></div><span class="v">0.016</span></div>
+      <div class="brow"><span class="lbl"><span class="n">TF-IDF + LR</span><span class="h">banking-cand &middot; final report</span></span>
+        <div class="track"><div class="fill" style="width:9.7%"></div></div><span class="v">0.018</span></div>
+      <div class="brow"><span class="lbl"><span class="n">Laya</span><span class="h">banking-cand &middot; final report</span></span>
+        <div class="track"><div class="fill" style="width:100%"></div></div><span class="v">0.185</span></div>
+      <div class="brow"><span class="lbl"><span class="n">Julia-1</span><span class="h">temps shipped, no public ECE</span></span>
+        <div class="track"></div><span class="v na">&mdash;</span></div>
+    </div>
+  </div>
+
+  <div class="foot">
+    <b>Sources:</b> E22 v3 (latency tie at b1: 106.1 vs 106.4 ms; Julia 5&ndash;10% faster at b16),
+    E35 (numeric order + task, s42), E32/E34 (adapted Julia), E36 (calibration + abstention),
+    final report (baselines, T4). <b>Also measured, not charted:</b> testC 0.979 vs Julia 1.000;
+    monotonicity 8/10 vs 7/10; MK-SH-1 abstention &tau;=0.79 at 90% coverage, 4.86% selective risk.
+    <b>System comparison, recipes differ</b> &mdash; no architecture claim. GLiNER2.5, Jeff, Clef-Flash: not_run.
+    Jev-family repros are ranked on the external Decision Index (private components): like-for-like
+    numbers would need the curator's suite.
+  </div>
+</div>
+</body>
+</html>

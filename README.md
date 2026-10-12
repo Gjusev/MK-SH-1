@@ -182,6 +182,10 @@ family referenced from `docs/experiments.md`.
 
 ## Final comparison (E32 axis A + E34, one harness, CPU float32)
 
+![MK-SH-1 against the field: latency, numeric order, own-task retention and
+calibration against Julia-1, Laya and TF-IDF+LR; every bar cites its
+experiment](assets/comparison.png)
+
 Recipes are NOT identical (uniform 2e-5 vs grouped LR, 30 vs ~300 epochs,
 full-checkpoint vs encoder+head init): these are **complete-system**
 comparisons. No architecture claims.
