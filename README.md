@@ -29,13 +29,6 @@ options:  [ transaction_charged_twice: "The same transaction was charged twice"
 It is **not** a chat model and does not generate text for the decision. Each
 option is scored in one encoder pass; softmax runs over the valid options only.
 
-## The name
-
-The mark holds a whale shark in the negative space between two tide bands
-(the concept is called MAREA, Spanish for tide). It reads the way the model
-works: the shape appears where the bands part, as a decision appears when a
-value crosses a threshold line. MK-SH-1 is the first model of the MK family.
-
 ## The decision contract
 
 One encoder, shared weights, a scalar score per option. The temperature is a
@@ -130,44 +123,6 @@ The full protocol, per-case artifacts, criteria, corrections and caveats are
 in [`docs/experiments.md`](docs/experiments.md). The comparison is deliberately
 kept here because it is the shortest honest answer to "what is different?"
 
-<!-- Detailed campaign chronology remains in docs/experiments.md.
-## How the capability was built
-
-```mermaid
-flowchart LR
-    A["dense comparison grid<br/>944 rows, 4 Yes / 4 No per value"] --> B["replay integration<br/>3 x 5 epochs, task + grid (E29/E30)"]
-    B --> C["extremes + replay<br/>new disjoint 248-row grid (E35)"]
-    C --> D["calibration + policy<br/>frozen split, no retraining (E36)"]
-    D --> E["v1.2"]
-```
-
-One row per beat, commits included; the full per-experiment entries with
-every caveat live in `docs/experiments.md`. Criteria were frozen and
-committed before each launch; closures were adversarially reviewed and every
-correction integrated.
-
-| Beat | Experiments | Outcome | Key commits |
-|---|---|---|---|
-| Fit a numeric microset at all | E24 | Yes, 2/2 seeds in <60 steps | `282c1a2c` `a5cf32d7` |
-| Threshold variation teaches a shortcut, not order | E25, E26, E26b/c | Decade shortcut fits the same data; breaking it kills the pass; ceiling replicated across 6 seeds | `c4fcdebd` `4e519c73` `71d3497f` |
-| Dense per-value coverage teaches real order | E27 | testC 0.979/1.000, transfers to fresh 2-decimal OOD; extrap + monotonicity declared weak | `fed51a57` `8e009039` |
-| Extremes alone fail; seed-checked | E28, E28b | Big moves but not in both seeds; interference reading honored | `22862628` `0faebf6c` |
-| Replay protects; disjoint sample confirms | E29, E29b, E30 | No catastrophe; interference ~1/4 of no-replay; F1″ passes independently | `d51793e7` `6db1090d` |
-| The invalid closure and its repair | E31, E33 | Binding bug found, claim retracted publicly, pipeline re-run valid | `f89c3c3e` `3c03322e` `977c47b2` |
-| One-harness comparison, no architecture claims | E32, E34 | Julia transfers edges better but loses its own task faster with replay | `760bb997` `2922fab0` |
-| Edges cracked; calibrated + gated | E35, E36 | E-extrap 0.875/0.857, task 0.800/0.783; T = 7.653, tau = 0.79 at 90% coverage | `cf6cc3ba` `24d7fbc7` |
-
-## The surviving differentiator (E32/E34, same CPU-float32 harness)
-
-The integrated MOKKA version holds the newly acquired numeric-order
-capability and its original task **at the same time**. The reference system
-(Julia-1, adapted under a mirrored recipe) recovers a proxy task alongside
-order but loses its own original task faster with replay than without (−27/−24
-pp vs −14/−19 pp). Every advantage sentence in this README points at the
-experiment and commit that measures it; the caveats travel with the claims.
-
--->
-
 ## Rigor: the correction that defines this repository
 
 The E31 story is told in full because it is the point, not an embarrassment:
@@ -211,35 +166,6 @@ flowchart TD
 Criteria documents, frozen before each launch with verifiable commit order:
 `docs/E32_CRITERIA…` through `docs/E36_CRITERIA…`, plus the internal protocol
 family referenced from `docs/experiments.md`.
-
-<!-- The compact comparison above is the reader-facing version; this retained
-audit table is intentionally hidden from the landing README.
-## Final comparison (E32 axis A + E34, one harness, CPU float32)
-
-![MK-SH-1 against the field: latency, numeric order, own-task retention and
-calibration against Julia-1, Laya and TF-IDF+LR; every bar cites its
-experiment](assets/comparison.png)
-
-Recipes are NOT identical (uniform 2e-5 vs grouped LR, 30 vs ~300 epochs,
-full-checkpoint vs encoder+head init): these are **complete-system**
-comparisons. No architecture claims.
-
-| Metric (final) | Mokka integrated (E30-MIX) | Julia adapted (E32, mean s42/s43) | Julia + replay (E34, s42/s43) |
-|---|---|---|---|
-| testC (order, known) | 0.979 | **1.000** (1 row ahead) | **1.000 / 1.000** |
-| testE-interp (OOD) | 0.922 | 0.961 | 0.940 / 0.983 |
-| testE-extrap (OOD) | 0.750 | **0.911** | n/a |
-| Monotonicity (VE2) | **9/10** | 7/10 | n/a |
-| Threshold-only pairs (22) | 13 | **16** | n/a |
-| Its original task | routing 0.733 (recovered from 0.16) | typed-2000 −13.6/−19.0 pp | typed-2000 **−27.1/−23.5 pp**; proxy-task 0.83 |
-
-Read it this way: adapted Julia transfers the numeric capability better at
-range edges; the integrated Mokka version keeps monotonicity and recovers its
-task. With replay, Julia holds a proxy task and order at once while its *own*
-task degrades faster than without replay. The trade-off does not close. It
-refines by which task is at stake.
-
--->
 
 ## What survives, what does not
 
