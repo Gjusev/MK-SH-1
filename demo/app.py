@@ -226,9 +226,9 @@ html, body { background: #07101C !important; }
 @media (prefers-reduced-motion: reduce) { .rise { animation: none; opacity: 1; transform: none; } }
 
 @media (max-width: 720px) {
-  /* the internal lane swipe is the real scroller; this kills the phantom
+  /* the internal lane swipe is the real scroller; clip kills the phantom
      ~100px page-level horizontal scroll Gradio's tab wrappers otherwise add */
-  body { overflow-x: hidden; }
+  html, body { overflow-x: clip; }
   .gradio-container { padding: 28px 14px 48px !important; }
   #hero { padding-left: 14px; }
   #hero .brand { gap: 12px; }
