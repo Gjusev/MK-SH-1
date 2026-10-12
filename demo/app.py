@@ -124,67 +124,69 @@ def render_question(question):
 
 
 CSS = """
-@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap');
 
-:root { color-scheme: light; }
-html, body { background: #F7F6F3 !important; }
+:root { color-scheme: dark; }
+html, body { background: #07101C !important; }
 .gradio-container { max-width: 1080px; margin: 0 auto; padding: 56px 24px 72px !important;
-  background: #F7F6F3; font-family: 'Geist', system-ui, sans-serif; color: #111111; }
+  background: #07101C; font-family: 'Geist', system-ui, sans-serif; color: #EAF2FF; }
 .gradio-container .footer, .footer { display: none !important; }
+#hero { border-left: 2px solid #7AA9E6; padding-left: 20px; }
 #hero .brand { display: flex; align-items: flex-start; gap: 20px; margin-bottom: 14px; }
-#hero .brand img { border-radius: 10px; display: block; }
-#hero h1 { font-family: 'Newsreader', Georgia, serif; font-weight: 500; letter-spacing: -0.02em;
-  font-size: 44px; line-height: 1.05; margin: 0 0 10px; }
-#hero .sub { font-size: 16px; line-height: 1.55; color: #787774; max-width: 560px; margin: 0; }
-#hero .meta { font-family: 'Geist Mono', monospace; font-size: 12.5px; color: #787774; margin: 0; }
+#hero .brand img { border-radius: 10px; display: block; box-shadow: 0 16px 48px rgba(34, 78, 128, 0.24); }
+#hero h1 { font-family: 'Geist', system-ui, sans-serif; font-weight: 600; letter-spacing: -0.045em;
+  font-size: 48px; line-height: 0.98; margin: 0 0 10px; color: #F5F9FF; }
+#hero .sub { font-size: 16px; line-height: 1.55; color: #B6C8DF; max-width: 560px; margin: 0; }
+#hero .meta { font-family: 'Geist Mono', monospace; font-size: 12.5px; color: #7893B3; margin: 0; }
 .num, .code { font-family: 'Geist Mono', monospace; font-size: 0.94em; }
 .code { background: transparent; color: inherit; }
 
-.panel { background: #FFFFFF; border: 1px solid #EAEAEA; border-radius: 12px;
-  padding: 28px !important; transition: box-shadow 240ms ease; }
-.panel:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
-.kicker { display: block; font-size: 13px; color: #787774; margin: 0 0 10px; }
+.panel { background: #0C1827; border: 1px solid #24415F; border-radius: 12px;
+  padding: 28px !important; transition: border-color 240ms ease, box-shadow 240ms ease; }
+.panel:hover { border-color: #4274A8; box-shadow: 0 18px 46px rgba(0, 0, 0, 0.20); }
+.kicker { display: block; font-family: 'Geist Mono', monospace; font-size: 12px; color: #82B8FF; margin: 0 0 10px; letter-spacing: 0.02em; }
 
 .gradio-container input[type="text"], .gradio-container input[type="number"],
-.gradio-container textarea { border-radius: 8px !important; border-color: #EAEAEA !important;
-  font-family: 'Geist Mono', monospace !important; font-size: 13px !important; }
-button.primary { background: #111111 !important; color: #FFFFFF !important;
-  border-radius: 6px !important; border: none !important; font-weight: 500 !important;
-  box-shadow: none !important; transition: transform 120ms ease; }
-button.primary:hover { background: #111111 !important; transform: none; }
+.gradio-container textarea { border-radius: 8px !important; border-color: #284966 !important;
+  background: #091421 !important; color: #EAF2FF !important; font-family: 'Geist Mono', monospace !important; font-size: 13px !important; }
+button.primary { background: #78AEEB !important; color: #07101C !important;
+  border-radius: 6px !important; border: none !important; font-weight: 600 !important;
+  box-shadow: none !important; transition: transform 120ms ease, background 120ms ease; }
+button.primary:hover { background: #A4C9F4 !important; transform: none; }
 button.primary:active { transform: scale(0.98); }
-.gradio-container :focus { --ring-color: #EAEAEA !important; }
+.gradio-container :focus { --ring-color: #82B8FF !important; }
 
 .probs { display: flex; flex-direction: column; gap: 10px; margin-top: 4px; }
 .prob-row { display: grid; grid-template-columns: 44px 64px 1fr; align-items: center; gap: 14px; }
 .prob-row .opt { font-size: 14px; }
 .prob-row .num { font-size: 15px; }
-.bar { height: 4px; background: #EAEAEA; border-radius: 2px; overflow: hidden; }
-.bar i { display: block; height: 100%; background: #111111; }
+.bar { height: 4px; background: #1C334B; border-radius: 2px; overflow: hidden; }
+.bar i { display: block; height: 100%; background: #82B8FF; }
 
 .verdict { border-radius: 8px; padding: 16px 18px; margin-top: 8px; }
-.verdict.accepted { background: #EDF3EC; color: #346538; }
-.verdict.refused { background: #FDEBEC; color: #9F2F2D; }
+.verdict.accepted { background: #0D263D; color: #B9DCFF; border: 1px solid #35638F; }
+.verdict.refused { background: #291822; color: #F2BAC7; border: 1px solid #734153; }
 .v-head { font-size: 16px; font-weight: 600; margin-bottom: 6px; }
 .v-meta { font-size: 14px; line-height: 1.5; }
 .verdict .rule { margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(0,0,0,0.08);
   font-size: 13px; line-height: 1.5; opacity: 0.85; }
-.q-asked { font-size: 13.5px; color: #787774; margin-top: 18px; }
+.q-asked { font-size: 13.5px; color: #9AB1CB; margin-top: 18px; }
 
 .vignette { width: 100%; height: 740px; border: none; border-radius: 12px; }
+.usecase-intro { color: #9AB1CB; font-size: 14px; line-height: 1.55; margin: -2px 0 14px; max-width: 680px; }
 
 .examples { margin-top: 40px; }
-.examples .table { border-radius: 12px; border: 1px solid #EAEAEA; background: #FFFFFF; }
+.examples .table { border-radius: 12px; border: 1px solid #24415F; background: #0C1827; }
 .examples button.secondary, .examples .table-row { background: transparent !important; box-shadow: none !important; }
 .examples table { border-collapse: collapse; width: 100%; }
-.examples tr { border-bottom: 1px solid #EAEAEA !important; transition: background 160ms ease; }
+.examples tr { border-bottom: 1px solid #1F3853 !important; transition: background 160ms ease; }
 .examples tr:last-child { border-bottom: none !important; }
-.examples tr:hover { background: #FBFAF8; }
+.examples tr:hover { background: #102238; }
 .examples td { padding: 14px 16px !important; font-family: 'Geist Mono', monospace; font-size: 12.5px; }
 
-#foot { margin-top: 48px; padding-top: 20px; border-top: 1px solid #EAEAEA;
-  font-size: 13px; color: #787774; }
-#foot a { color: #111111; text-decoration: underline; text-underline-offset: 3px; margin-right: 18px; }
+#foot { margin-top: 48px; padding-top: 20px; border-top: 1px solid #1F3853;
+  font-size: 13px; color: #7893B3; }
+#foot a { color: #B9DCFF; text-decoration: underline; text-underline-offset: 3px; margin-right: 18px; }
 #foot .note { margin-top: 8px; font-size: 12.5px; }
 
 .rise { opacity: 0; transform: translateY(12px);
@@ -193,19 +195,19 @@ button.primary:active { transform: scale(0.98); }
 @keyframes rise { to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .rise { animation: none; opacity: 1; transform: none; } }
 
-/* forced light: re-pin Gradio's theme tokens inside .dark to our palette */
+/* MAREA nocturna: persist the same composed dark surface on every device. */
 .dark {
-  --body-background-fill: #F7F6F3; --background-fill-primary: #FFFFFF;
-  --background-fill-secondary: #FAF9F6; --panel-background-fill: #FFFFFF;
-  --block-background-fill: #FFFFFF; --input-background-fill: #FFFFFF;
-  --border-color-primary: #EAEAEA; --border-color-accent: #D9D6CF;
-  --block-border-color: #EAEAEA; --panel-border-color: #EAEAEA;
-  --body-text-color: #111111; --block-title-text-color: #667081;
-  --color-accent-soft: #F1EFEA; --link-text-color: #1B2A41;
-  --button-primary-background-fill: #111111; --button-primary-text-color: #FFFFFF;
-  color-scheme: light;
+  --body-background-fill: #07101C; --background-fill-primary: #0C1827;
+  --background-fill-secondary: #102238; --panel-background-fill: #0C1827;
+  --block-background-fill: #0C1827; --input-background-fill: #091421;
+  --border-color-primary: #24415F; --border-color-accent: #4274A8;
+  --block-border-color: #24415F; --panel-border-color: #24415F;
+  --body-text-color: #EAF2FF; --block-title-text-color: #B6C8DF;
+  --color-accent: #78AEEB; --color-accent-soft: #0D263D; --link-text-color: #B9DCFF;
+  --button-primary-background-fill: #78AEEB; --button-primary-text-color: #07101C;
+  color-scheme: dark;
 }
-.dark .gradio-container, .dark { background: #F7F6F3 !important; color: #111111; }
+.dark .gradio-container, .dark { background: #07101C !important; color: #EAF2FF; }
 """
 
 
@@ -237,14 +239,27 @@ def build():
     </footer>
     """
     gr.set_static_paths(paths=["assets", "usecases"])
-    # the MAREA identity is a light editorial surface: keep the whole app
-    # light on dark devices instead of a half-adapted mix (declared choice)
-    force_light = ("try{localStorage.setItem('gradio_theme','light')}catch(e){};"
-                   "document.querySelectorAll('.dark').forEach(e=>e.classList.remove('dark'));")
-    with gr.Blocks(css=CSS, title="MK-SH-1 demo", js=force_light) as demo:
+    # The demo uses one intentional MAREA nocturna surface, including when the
+    # host/browser preference would otherwise switch Gradio back to light mode.
+    force_dark = ("try{localStorage.setItem('gradio_theme','dark')}catch(e){};"
+                  "document.documentElement.classList.add('dark');"
+                  "document.body.classList.add('dark');")
+    with gr.Blocks(css=CSS, title="MK-SH-1 demo", js=force_dark) as demo:
         gr.HTML(hero)
+        with gr.Column(elem_classes=["rise", "d1"]):
+            gr.HTML('<span class="kicker">Use cases</span>'
+                    '<p class="usecase-intro">Three interactive interface studies for queues that '
+                    'benefit from an explicit review lane. They illustrate the decision contract; '
+                    'the live checkpoint runs in the lab immediately below.</p>')
+            with gr.Tabs():
+                for tab_label, src in (("Support triage", "usecases/triage-soporte.html"),
+                                       ("Lead qualification", "usecases/lead-qual.html"),
+                                       ("Stock alerts", "usecases/stock-alerts.html")):
+                    with gr.Tab(tab_label):
+                        gr.HTML(f'<iframe class="vignette" src="/gradio_api/file={src}" '
+                                'title="MK-SH-1 use case vignette" loading="lazy"></iframe>')
         with gr.Column(elem_classes=["panel", "rise", "d1"]):
-            gr.HTML('<span class="kicker">Decision input</span>')
+            gr.HTML('<span class="kicker">Live decision lab</span>')
             state = gr.Textbox(
                 label="State, as JSON (the value lives in motor_temp_c)",
                 value=EXAMPLES[0][0], lines=3)
@@ -260,19 +275,11 @@ def build():
             run.click(decide, inputs=[state, threshold],
                       outputs=[out_probs, out_verdict, out_question], api_name="decide")
         with gr.Column(elem_classes=["rise", "d2"]):
-            gr.HTML('<span class="kicker">Examples</span>')
+            gr.HTML('<span class="kicker">Run a real checkpoint example</span>')
             gr.Examples(examples=EXAMPLES, inputs=[state, threshold],
                         fn=decide, outputs=[out_probs, out_verdict, out_question],
                         cache_examples=False,
                         examples_per_page=3)
-        gr.HTML('<span class="kicker">Use cases (illustrative)</span>')
-        with gr.Tabs():
-            for tab_label, src in (("Support triage", "usecases/triage-soporte.html"),
-                                   ("Lead qualification", "usecases/lead-qual.html"),
-                                   ("Stock alerts", "usecases/stock-alerts.html")):
-                with gr.Tab(tab_label):
-                    gr.HTML(f'<iframe class="vignette" src="/gradio_api/file={src}#light" '
-                            'title="MK-SH-1 use case vignette" loading="lazy"></iframe>')
         gr.HTML(foot)
     return demo
 

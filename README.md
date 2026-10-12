@@ -5,11 +5,10 @@
 
 A small open **decision model**: given a state, a question and a list of
 described options, it returns calibrated probabilities, a choice, and when
-confidence is too low, an explicit abstention. The repository carries the full
-training and evaluation system behind it, plus a twelve-experiment research
-campaign (E24 to E35, 2026-10-10/12) that taught the model a capability it did
-not have and audited every step of that claim. Calibration and abstention were
-added without retraining (E36).
+confidence is too low, an explicit abstention. The repository carries the
+training and evaluation system behind it, including a documented research
+campaign that taught the model numeric order and audited the resulting claim.
+Calibration and abstention were added without retraining.
 
 Public model: **[Gjusev/MK-SH-1](https://huggingface.co/Gjusev/MK-SH-1)**.
 v1.2 ships calibrated probabilities (T = 7.653) and a validated abstention
@@ -106,6 +105,31 @@ it changes no choices, only confidences. The abstention gate at tau = 0.79
 keeps 90 % coverage at 4.86 % selective risk; below the gate the model returns
 choice = null with reason_code below_validated_threshold.
 
+## Measured comparison
+
+![MK-SH-1 against the field: latency, numeric order, own-task retention and
+calibration against Julia-1, Laya and TF-IDF+LR; every bar cites its
+experiment](assets/comparison.png)
+
+These are complete-system comparisons, not architecture claims: the recipes
+differ. Julia transfers numeric order better at range edges; MK-SH-1 keeps
+better monotonicity and recovers its original routing task after integration.
+With replay, Julia holds a proxy task plus order while its own original task
+degrades faster than without replay. Neither system dominates.
+
+| Measured outcome | MK-SH-1 integrated | Julia-1 adapted | Julia-1 + replay |
+|---|---|---|---|
+| Order, known thresholds | 0.979 | **1.000** | **1.000 / 1.000** |
+| Fresh extreme thresholds | 0.750 | **0.911** | n/a |
+| Monotonicity sweeps | **9/10** | 7/10 | n/a |
+| Original task after integration | routing 0.733, recovered from 0.16 | typed task -13.6/-19.0 pp | typed task -27.1/-23.5 pp |
+| CPU latency, batch 1 | 106 ms | 106 ms | not measured |
+
+The full protocol, per-case artifacts, criteria, corrections and caveats are
+in [`docs/experiments.md`](docs/experiments.md). The comparison is deliberately
+kept here because it is the shortest honest answer to "what is different?"
+
+<!-- Detailed campaign chronology remains in docs/experiments.md.
 ## How the capability was built
 
 ```mermaid
@@ -115,10 +139,6 @@ flowchart LR
     C --> D["calibration + policy<br/>frozen split, no retraining (E36)"]
     D --> E["v1.2"]
 ```
-
-Full entries with all caveats: `docs/experiments.md`. All criteria were frozen
-and committed **before** each launch; every closure was adversarially reviewed
-by an independent agent or session and every correction integrated.
 
 One row per beat, commits included; the full per-experiment entries with
 every caveat live in `docs/experiments.md`. Criteria were frozen and
@@ -144,6 +164,8 @@ capability and its original task **at the same time**. The reference system
 order but loses its own original task faster with replay than without (−27/−24
 pp vs −14/−19 pp). Every advantage sentence in this README points at the
 experiment and commit that measures it; the caveats travel with the claims.
+
+-->
 
 ## Rigor: the correction that defines this repository
 
@@ -189,6 +211,8 @@ Criteria documents, frozen before each launch with verifiable commit order:
 `docs/E32_CRITERIA…` through `docs/E36_CRITERIA…`, plus the internal protocol
 family referenced from `docs/experiments.md`.
 
+<!-- The compact comparison above is the reader-facing version; this retained
+audit table is intentionally hidden from the landing README.
 ## Final comparison (E32 axis A + E34, one harness, CPU float32)
 
 ![MK-SH-1 against the field: latency, numeric order, own-task retention and
@@ -213,6 +237,8 @@ range edges; the integrated Mokka version keeps monotonicity and recovers its
 task. With replay, Julia holds a proxy task and order at once while its *own*
 task degrades faster than without replay. The trade-off does not close. It
 refines by which task is at stake.
+
+-->
 
 ## What survives, what does not
 
