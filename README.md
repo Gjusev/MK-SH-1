@@ -48,7 +48,7 @@ flowchart LR
 
 ## Use cases
 
-https://github.com/user-attachments/assets/84fc36de-8b1f-4f83-bd22-d3632137dd42
+https://github.com/Gjusev/MK-SH-1/releases/download/film-1/mksh-presentation.mp4
 
 <p align="center"><sub>Illustrative scores through the shipped formula
 (softmax at the fitted temperature, gate at tau). The decision contract at
