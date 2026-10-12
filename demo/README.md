@@ -16,11 +16,11 @@ Interactive demo of **[Gjusev/MK-SH-1](https://huggingface.co/Gjusev/MK-SH-1)**
 a **choice**, and — when confidence is below the validated threshold — an
 explicit **abstention with reason_code**.
 
-**Canonical source:** [`demo/` in github.com/Gjusev/mokka-decisions](https://github.com/Gjusev/mokka-decisions/tree/main/demo)
+**Canonical source:** [`demo/` in github.com/Gjusev/MK-SH-1](https://github.com/Gjusev/MK-SH-1/tree/main/demo)
 (this Space holds a copy, pushed by `scripts/push_space.py` — the repo is the
 source of truth). Training/evaluation/calibration record and write-up
-material: [`docs/experiments.md`](https://github.com/Gjusev/mokka-decisions/blob/main/docs/experiments.md),
-[`docs/model-card.md`](https://github.com/Gjusev/mokka-decisions/blob/main/docs/model-card.md).
+material: [`docs/experiments.md`](https://github.com/Gjusev/MK-SH-1/blob/main/docs/experiments.md),
+[`docs/model-card.md`](https://github.com/Gjusev/MK-SH-1/blob/main/docs/model-card.md).
 
 Three preloaded examples: a normal confident case, a numeric OOD case at the
 edge of the range, and a borderline case where the policy abstains
