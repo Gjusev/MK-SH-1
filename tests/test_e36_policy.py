@@ -120,3 +120,15 @@ def test_export_policy_consistent_with_frozen_logits():
         if max(cal) < tau:
             n_abst += 1
     assert n_abst == 48  # 480 * (1 - 0.900) coverage at tau (frozen report: 432 accepted)
+
+
+def test_clopper_pearson_matches_reference():
+    """Exact CP bounds (reference values from scipy.stats.beta, 95 % two-sided)."""
+    import sys
+    sys.path.insert(0, str(ROOT / "scripts"))
+    from e36_heldout_policy import clopper_pearson
+
+    for k, n, lo, hi in [(21, 432, 0.030339, 0.073350), (16, 194, 0.047876, 0.130478),
+                         (1, 47, 0.000539, 0.112938), (0, 10, 0.0, 0.308497)]:
+        got_lo, got_hi = clopper_pearson(k, n)
+        assert abs(got_lo - lo) < 1e-5 and abs(got_hi - hi) < 1e-5

@@ -11,8 +11,9 @@ campaign that taught the model numeric order and audited the resulting claim.
 Calibration and abstention were added without retraining.
 
 Public model: **[Gjusev/MK-SH-1](https://huggingface.co/Gjusev/MK-SH-1)**.
-v1.2 ships calibrated probabilities (T = 7.653) and a validated abstention
-policy (tau = 0.79, 90 % coverage at a 5 % selective-risk budget) on weights
+v1.2 ships calibrated probabilities (T = 7.653) and an abstention policy
+(tau = 0.79, 90 % coverage at 4.86 % selective risk in-sample; held-out risk
+is in the model card) on weights
 byte-identical to v1.1. Interactive demo:
 **[Gjusev/MK-SH-1-demo](https://huggingface.co/spaces/Gjusev/MK-SH-1-demo)**
 (source: [`demo/`](demo/)).
@@ -68,10 +69,12 @@ measurement stops.
    numeric reasoner, and E-extrap is 7/8 pairs, not 10/10.
 2. **Calibrated scoring with a safety valve.** Post-temperature probabilities
    (ECE 0.016 on the dedicated calibration split, E36) plus abstention at
-   tau = 0.79: 90 % coverage with 4.86 % selective risk, which buys +2.85 pp
+   tau = 0.79: 90 % coverage with 4.86 % selective risk on the split that
+   chose tau (in-sample), which buys +2.85 pp
    accuracy on the cases the policy keeps. Suited to decision queues where
    refusals go to human review. Bound: the policy was fitted on the numeric
-   surface; the routing task inherits the same global temperature (measured
+   surface, and held out the 5 % budget is missed on the fresh OOD extremes
+   (8.2 %) and the routing task (7.3 %); the routing task inherits the same global temperature (measured
    descriptively: NLL 2.535 to 0.588, ECE 0.184 to 0.045, no policy fit), and
    the easiest set is slightly over-softened (known-thresholds ECE 0.024 to
    0.042), the declared cost of one scalar.
@@ -95,8 +98,14 @@ measurement stops.
 
 The temperature was fitted once, on 480 fresh questions, and it is monotone:
 it changes no choices, only confidences. The abstention gate at tau = 0.79
-keeps 90 % coverage at 4.86 % selective risk; below the gate the model returns
-choice = null with reason_code below_validated_threshold.
+keeps 90 % coverage at 4.86 % selective risk on that same split; below the
+gate the model returns choice = null with reason_code below_validated_threshold.
+Those two numbers are in-sample. At the shipped T and tau the held-out risk is
+2.0 to 3.3 % on the in-range numeric sets (n = 47 to 60, upper bounds above
+10 %), 8.2 % on the fresh OOD extremes and 7.3 % on the routing task, so the
+5 % budget is not met out of range
+([`scripts/e36_heldout_policy.py`](scripts/e36_heldout_policy.py); table in
+the [model card](docs/model-card.md)).
 
 ## Measured comparison
 

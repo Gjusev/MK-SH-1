@@ -39,10 +39,12 @@ measurement stops.
    (motor-temperature style states); not a general numeric reasoner.
 2. **Calibrated scoring with a safety valve.** ECE 0.016 on the dedicated
    split (E36) plus abstention at tau = 0.79: 90 % coverage with 4.86 %
-   selective risk, +2.85 pp accuracy on the cases the policy keeps. Suited
-   to decision queues where refusals go to human review. Bound: the policy
-   was fitted on the numeric surface; routing probabilities inherit the same
-   global temperature (measured descriptively).
+   selective risk on that split, +2.85 pp accuracy on the cases the policy
+   keeps. Suited to decision queues where refusals go to human review.
+   Bound: those two numbers are in-sample (tau was chosen on the same rows).
+   On held-out sets the 5 % budget holds as a point estimate on the in-range
+   numeric sets but not on the fresh OOD extremes (8.2 % risk) or the routing
+   task (7.3 %); see the per-set table below.
 3. **CPU and edge inference.** 106 ms per question at batch 1 on 8 CPU
    threads, fp32 (E22 v3). Bound: a tie with the Julia-1 reference at batch 1
    and 5 to 10 % behind at batch 16; the earlier 1.35x speed claim is
@@ -105,6 +107,29 @@ Abstaining returns
 `choice=null` + `reason_code="below_validated_threshold"`. The full
 coverage/accuracy/risk curve is in the training repo
 (`runs/e36-calib/e36_report.json`, deterministically regenerable).
+
+Those split numbers are in-sample: T was fitted, the grid swept and tau
+chosen on the same 480 rows, and the first grid point under 5 % is the one
+most likely to sit there by chance. Freezing the rule in advance does not
+change that. Measured afterwards on every set at the shipped T and tau
+(`scripts/e36_heldout_policy.py`, no refit; risk interval is exact
+Clopper-Pearson 95 %):
+
+| Set | n | Coverage | Selective risk | 95 % interval | 5 % budget |
+|---|---|---|---|---|---|
+| split (fit, in-sample) | 480 | 0.900 | 21/432 = 4.9 % | 3.0 to 7.3 % | point only |
+| known thresholds | 48 | 0.979 | 1/47 = 2.1 % | 0.1 to 11.3 % | point only |
+| new thresholds | 54 | 0.944 | 1/51 = 2.0 % | 0.1 to 10.5 % | point only |
+| monotonicity | 60 | 1.000 | 2/60 = 3.3 % | 0.4 to 11.5 % | point only |
+| fresh OOD extremes | 202 | 0.960 | 16/194 = 8.2 % | 4.8 to 13.0 % | **missed** |
+| routing task | 300 | 0.683 | 15/205 = 7.3 % | 4.2 to 11.8 % | **missed** |
+
+No set confirms the budget at the upper bound; the small in-range sets are
+consistent with it but cannot establish it. On the fresh OOD extremes the
+gate keeps 96 % of rows while 8.2 % of the kept ones are wrong, the same
+overconfidence the ECE of 0.076 shows. Treat tau = 0.79 as a 5 % budget
+validated in-sample on in-range numeric questions only. This check was
+raised by an external review on the Hugging Face discussion (2026-10-14).
 
 ## Usage
 
